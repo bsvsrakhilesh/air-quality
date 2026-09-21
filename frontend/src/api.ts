@@ -1,0 +1,133 @@
+import type {
+  Catalog,
+  CorrelationResult,
+  DistributionResult,
+  ImportedDataset,
+  ImportInspection,
+  StatisticalProfile,
+  StatisticalTestResult,
+  TimeDiagnosticsResult,
+  TimeSeriesResponse,
+} from './types'
+
+async function request<T>(path: string, signal?: AbortSignal): Promise<T> {
+  const response = await fetch(path, { signal })
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Something went wrong' }))
+    throw new Error(error.detail ?? `Request failed (${response.status})`)
+  }
+  return response.json() as Promise<T>
+}
+
+export function getCatalog(signal?: AbortSignal) {
+  return request<Catalog>('/api/catalog', signal)
+}
+
+export interface TimeSeriesQuery {
+  monitors: string[]
+  metric: string
+  start: string
+  end: string
+  interval: string
+  smoothing: number
+}
+
+export function getTimeSeries(query: TimeSeriesQuery, signal?: AbortSignal) {
+  const params = new URLSearchParams()
+  query.monitors.forEach((monitor) => params.append('monitors', monitor))
+  params.set('metric', query.metric)
+  params.set('start', query.start)
+  params.set('end', query.end)
+  params.set('interval', query.interval)
+  params.set('smoothing', String(query.smoothing))
+  return request<TimeSeriesResponse>(`/api/timeseries?${params}`, signal)
+}
+
+export async function inspectUpload(file: File, signal?: AbortSignal) {
+  const body = new FormData()
+  body.append('file', file)
+  const response = await fetch('/api/import/inspect', { method: 'POST', body, signal })
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'The file could not be inspected' }))
+    throw new Error(error.detail)
+  }
+  return response.json() as Promise<ImportInspection>
+}
+
+export function inspectSheet(uploadId: string, sheet: string, signal?: AbortSignal) {
+  const params = new URLSearchParams({ sheet })
+  return request<ImportInspection>(`/api/import/${uploadId}/inspect?${params}`, signal)
+}
+
+export interface ImportConfiguration {
+  upload_id: string
+  dataset_name: string
+  source_filename: string
+  sheet: string | null
+  date_column: string | null
+  time_column: string | null
+  day_first: boolean
+  measurements: Array<{ column: string; label: string; unit: string }>
+}
+
+export async function commitImport(configuration: ImportConfiguration) {
+  const response = await fetch('/api/import/commit', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(configuration),
+  })
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'The dataset could not be imported' }))
+    throw new Error(error.detail)
+  }
+  return response.json() as Promise<{ dataset: ImportedDataset }>
+}
+
+export function getStatisticalProfile(datasetId: string, signal?: AbortSignal) {
+  return request<StatisticalProfile>(`/api/statistics/${encodeURIComponent(datasetId)}/profile`, signal)
+}
+
+export function getDistribution(datasetId: string, column: string, bins = 30, signal?: AbortSignal) {
+  const params = new URLSearchParams({ column, bins: String(bins) })
+  return request<DistributionResult>(`/api/statistics/${encodeURIComponent(datasetId)}/distribution?${params}`, signal)
+}
+
+export function getCorrelation(datasetId: string, columns: string[], method: string, signal?: AbortSignal) {
+  const params = new URLSearchParams({ method })
+  columns.forEach((column) => params.append('columns', column))
+  return request<CorrelationResult>(`/api/statistics/${encodeURIComponent(datasetId)}/correlation?${params}`, signal)
+}
+
+export interface StatisticalTestConfiguration {
+  dataset_id: string
+  test: string
+  columns: string[]
+  group_column?: string | null
+  groups?: string[] | null
+  hypothesized_mean?: number
+  alpha?: number
+}
+
+export async function runStatisticalTest(configuration: StatisticalTestConfiguration) {
+  const response = await fetch('/api/statistics/test', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(configuration),
+  })
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'The test could not be completed' }))
+    throw new Error(error.detail)
+  }
+  return response.json() as Promise<StatisticalTestResult>
+}
+
+export function getTimeDiagnostics(
+  datasetId: string,
+  timestamp: string,
+  column: string,
+  maxLag = 40,
+  signal?: AbortSignal,
+) {
+  const params = new URLSearchParams({ timestamp, column, max_lag: String(maxLag) })
+  return request<TimeDiagnosticsResult>(`/api/statistics/${encodeURIComponent(datasetId)}/time-diagnostics?${params}`, signal)
+}
