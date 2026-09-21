@@ -13,7 +13,6 @@ from fastapi import UploadFile
 from .config import (
     IMPORTED_DIR,
     MAX_UPLOAD_BYTES,
-    PROJECT_ROOT,
     REGISTRY_PATH,
     STAGING_DIR,
 )
@@ -205,6 +204,15 @@ class ImportService:
             "suggestions": self._suggestions(columns),
         }
 
+    def load_staged_frame(self, upload_id: str, sheet: str | None = None) -> pd.DataFrame:
+        """Read a staged upload for a downstream, user-confirmed workflow."""
+        path = self._stage_path(upload_id)
+        frame = self._read_table(path, sheet=sheet)
+        frame.columns = [str(column).strip() for column in frame.columns]
+        if len(set(frame.columns)) != len(frame.columns):
+            raise ValueError("Column names must be unique")
+        return frame
+
     @staticmethod
     def _metric_definition(column: str, label: str, unit: str) -> tuple[str, str, str]:
         standard = STANDARD_METRICS.get(_normalized(column))
@@ -295,7 +303,7 @@ class ImportService:
             "id": dataset_id,
             "name": config.dataset_name.strip(),
             "filename": Path(config.source_filename or path.name).name,
-            "storage_path": str(destination.relative_to(PROJECT_ROOT)).replace("\\", "/"),
+            "storage_path": str(destination),
             "rows": int(len(normalized)),
             "invalid_rows": invalid_timestamp_rows,
             "start": valid_timestamps.min().isoformat() if not valid_timestamps.empty else None,

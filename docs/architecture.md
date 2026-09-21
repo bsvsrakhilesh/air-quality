@@ -15,4 +15,6 @@ The browser never receives a whole source workbook by default. FastAPI performs 
 
 The service boundaries leave room for later additions: background jobs for expensive analyses, object storage for datasets, PostgreSQL for metadata, DuckDB or Polars for larger local workloads, and separately deployed model-serving workers for ML/LLM features.
 
+The collocation service consumes user-confirmed mappings from staged uploads. It normalizes each sensor independently, applies coverage-aware aggregation, diagnoses relative clock offsets, and calculates leave-one-out consensus metrics. Suggested shifts and correction profiles are returned as reviewable metadata; source rows are immutable. Correction selection uses contiguous time-block validation to avoid random-split leakage in time-dependent measurements.
+
 Uploaded data is application state, not source code. It is written to the `axiom-state` volume and excluded from images and Git. Files discovered through `AXIOM_INPUT_DIR` are mounted read-only.

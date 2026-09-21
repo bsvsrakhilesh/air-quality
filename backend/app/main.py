@@ -4,10 +4,18 @@ from typing import Annotated
 from fastapi import FastAPI, File, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 
+from .collocation_service import collocation_service
+from .collocation_store import collocation_store
 from .config import CORS_ORIGINS
 from .data_service import data_service
 from .import_service import import_service
-from .models import ImportConfig, StatisticalTestRequest, TimeSeriesResponse
+from .models import (
+    CollocationAnalysisRequest,
+    CollocationSessionCreate,
+    ImportConfig,
+    StatisticalTestRequest,
+    TimeSeriesResponse,
+)
 from .statistics_service import statistics_service
 
 app = FastAPI(
@@ -57,6 +65,35 @@ def commit_import(config: ImportConfig) -> dict:
         result = import_service.commit(config)
         data_service.clear_caches()
         return result
+    except (ValueError, OSError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/collocation/analyze")
+def analyze_collocation(request: CollocationAnalysisRequest) -> dict:
+    try:
+        return collocation_service.analyze(request)
+    except (ValueError, OSError, KeyError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get("/api/collocation/sessions")
+def collocation_sessions() -> list[dict]:
+    return collocation_store.list()
+
+
+@app.post("/api/collocation/sessions")
+def save_collocation_session(request: CollocationSessionCreate) -> dict:
+    try:
+        return collocation_store.save(request)
+    except (ValueError, OSError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get("/api/collocation/drift")
+def collocation_drift(baseline_id: str, follow_up_id: str) -> dict:
+    try:
+        return collocation_store.compare(baseline_id, follow_up_id)
     except (ValueError, OSError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 

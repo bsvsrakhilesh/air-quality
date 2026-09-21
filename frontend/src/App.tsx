@@ -5,6 +5,7 @@ import {
   ChartNoAxesCombined,
   Database,
   Download,
+  FlaskConical,
   LoaderCircle,
   RefreshCw,
   SlidersHorizontal,
@@ -19,6 +20,7 @@ import { CHART_COLORS } from './components/chartColors'
 import type { Catalog, ImportedDataset, TimeSeriesResponse } from './types'
 
 const TimeSeriesChart = lazy(() => import('./components/TimeSeriesChart'))
+const CollocationWorkspace = lazy(() => import('./components/CollocationWorkspace'))
 
 const PRESETS = [
   { label: '24H', hours: 24 },
@@ -72,7 +74,10 @@ function App() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [importOpen, setImportOpen] = useState(() => new URLSearchParams(window.location.search).get('import') === '1')
-  const [view, setView] = useState<'series' | 'statistics'>(() => new URLSearchParams(window.location.search).get('view') === 'statistics' ? 'statistics' : 'series')
+  const [view, setView] = useState<'series' | 'statistics' | 'collocation'>(() => {
+    const requested = new URLSearchParams(window.location.search).get('view')
+    return requested === 'statistics' || requested === 'collocation' ? requested : 'series'
+  })
   const [statisticsDataset, setStatisticsDataset] = useState<string | undefined>()
 
   useEffect(() => {
@@ -83,7 +88,7 @@ function App() {
         const preferred = response.monitors.find((dataset) => dataset.metrics.length > 0 && dataset.start && dataset.end)
         const initialMetric = preferred?.metrics[0] ?? response.metrics[0]?.id ?? ''
         if (!preferred || !response.range.end) {
-          setView('statistics')
+          setView((current) => current === 'series' ? 'statistics' : current)
           setLoading(false)
           return
         }
@@ -231,6 +236,7 @@ function App() {
         <nav className="workspace-nav" aria-label="Workspace">
           <button className={view === 'series' ? 'active' : ''} onClick={() => setView('series')}><ChartNoAxesCombined size={14} /> Time series</button>
           <button className={view === 'statistics' ? 'active' : ''} onClick={() => setView('statistics')}><Sigma size={14} /> Statistics</button>
+          <button className={view === 'collocation' ? 'active' : ''} onClick={() => setView('collocation')}><FlaskConical size={14} /> Collocation</button>
         </nav>
         <button className="topbar-import" type="button" onClick={() => setImportOpen(true)}>
           <Upload size={14} /> Import
@@ -242,7 +248,7 @@ function App() {
       </header>
 
       <main className="workspace">
-        {view === 'series' ? <>
+        {view === 'collocation' ? <Suspense fallback={<div className="analysis-loader"><LoaderCircle className="spin" /><span>Preparing collocation workspace…</span></div>}><CollocationWorkspace /></Suspense> : view === 'series' ? <>
         <section className="page-heading">
           <div>
             <div className="eyebrow"><Activity size={14} /> Analysis</div>

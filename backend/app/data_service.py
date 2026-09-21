@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from .config import DATA_DIR, MAX_CHART_POINTS, PROJECT_ROOT
+from .config import APP_DATA_DIR, DATA_DIR, MAX_CHART_POINTS, PROJECT_ROOT
 from .import_service import load_registry
 
 
@@ -79,6 +79,15 @@ class DataService:
     @staticmethod
     def _imported_datasets() -> list[dict]:
         return load_registry()["datasets"]
+
+    @staticmethod
+    def _imported_path(storage_path: str) -> Path:
+        configured = Path(storage_path)
+        path = configured.resolve() if configured.is_absolute() else (PROJECT_ROOT / configured).resolve()
+        allowed_roots = (APP_DATA_DIR.resolve(), PROJECT_ROOT.resolve())
+        if not any(path.is_relative_to(root) for root in allowed_roots) or not path.exists():
+            raise ValueError("The imported dataset file is unavailable")
+        return path
 
     def _all_metrics(self) -> list[Metric]:
         metrics = list(METRICS)
@@ -216,9 +225,7 @@ class DataService:
             )
             if metric_config is None:
                 return pd.DataFrame(columns=["timestamp", "value"])
-            path = (PROJECT_ROOT / imported["storage_path"]).resolve()
-            if not path.is_relative_to(PROJECT_ROOT.resolve()) or not path.exists():
-                raise ValueError("The imported dataset file is unavailable")
+            path = self._imported_path(imported["storage_path"])
             frame = pd.read_csv(
                 path,
                 usecols=["timestamp", metric_config["storage_column"]],
@@ -261,9 +268,7 @@ class DataService:
             None,
         )
         if imported:
-            path = (PROJECT_ROOT / imported["storage_path"]).resolve()
-            if not path.is_relative_to(PROJECT_ROOT.resolve()) or not path.exists():
-                raise ValueError("The imported dataset file is unavailable")
+            path = self._imported_path(imported["storage_path"])
             frame = pd.read_csv(path, low_memory=False)
             rename = {
                 item["storage_column"]: item["name"]

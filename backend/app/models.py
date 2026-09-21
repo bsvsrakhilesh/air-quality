@@ -1,3 +1,5 @@
+from typing import Any
+
 from pydantic import BaseModel
 
 
@@ -57,3 +59,45 @@ class StatisticalTestRequest(BaseModel):
     groups: list[str] | None = None
     hypothesized_mean: float = 0
     alpha: float = 0.05
+
+
+class CollocationMember(BaseModel):
+    upload_id: str
+    filename: str
+    sheet: str | None = None
+    sensor_name: str
+    date_column: str
+    time_column: str | None = None
+    measurement_column: str
+    source_unit: str = ""
+    temperature_column: str | None = None
+    humidity_column: str | None = None
+    day_first: bool = True
+
+
+class CollocationQualityGates(BaseModel):
+    completeness: float = 80.0
+    ccc: float = 0.9
+    nrmse: float = 20.0
+    relative_bias: float = 10.0
+    slope_min: float = 0.85
+    slope_max: float = 1.15
+
+
+class CollocationAnalysisRequest(BaseModel):
+    study_name: str = "Untitled collocation"
+    parameter_name: str
+    unit: str = ""
+    resolution: str = "1min"
+    minimum_bin_coverage: float = 75.0
+    max_lag_minutes: int = 10
+    apply_suggested_lag: bool = False
+    members: list[CollocationMember]
+    quality_gates: CollocationQualityGates = CollocationQualityGates()
+
+
+class CollocationSessionCreate(BaseModel):
+    label: str
+    role: str = "baseline"
+    environment: str = "unspecified"
+    result: dict[str, Any]

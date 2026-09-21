@@ -12,10 +12,19 @@ Axiom is a polished, general-purpose statistical analysis workspace for structur
 - Parametric and non-parametric hypothesis tests, chi-square analysis, and simple regression
 - Effect sizes including Cohen's d, rank-biserial correlation, eta squared, epsilon squared, Cramer's V, and R-squared
 - Time-series charts, resampling, smoothing, date ranges, trend analysis, cadence, and autocorrelation diagnostics
+- Generic sensor collocation for PM, gases, CO₂, VOCs, meteorology, noise, radiation, and custom numeric responses
+- Dynamic per-file column mapping, clock-offset review, leave-one-out fleet consensus, configurable readiness gates, ICC/CCC, Bland–Altman limits, environmental residual diagnostics, and blocked-validation correction profiles
+- Persistent baseline, follow-up, and post-deployment sessions with sensor-level drift classification and exportable corrected data
 - Guided explanations for newer analysts and complete controls/results for experts
 - Responsive, keyboard-friendly UI with loading, empty, and error states
 
 Statistical results expose assumptions and sample sizes. Significance is paired with effect size and never presented as proof of causation.
+
+## Collocation workflow
+
+Open **Collocation** and upload one file per sensor. Axiom reads the headers and sample values from every file, suggests timestamp and numeric measurement fields, and exposes the actual detected columns in dropdowns. Different filenames and source-column names can be mapped to one shared parameter.
+
+Reference-free consensus analysis requires at least three sensors. Clock offsets are diagnosed but never applied without confirmation. Results distinguish relative fleet agreement from absolute accuracy, retain the raw timestamps and measurements, and export approved corrected values beside the originals.
 
 ## Quick start with Docker
 

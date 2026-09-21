@@ -1,9 +1,14 @@
 import type {
   Catalog,
+  CollocationMemberConfiguration,
+  CollocationQualityGates,
+  CollocationResult,
   CorrelationResult,
   DistributionResult,
   ImportedDataset,
   ImportInspection,
+  DriftComparison,
+  SavedCollocationSession,
   StatisticalProfile,
   StatisticalTestResult,
   TimeDiagnosticsResult,
@@ -130,4 +135,56 @@ export function getTimeDiagnostics(
 ) {
   const params = new URLSearchParams({ timestamp, column, max_lag: String(maxLag) })
   return request<TimeDiagnosticsResult>(`/api/statistics/${encodeURIComponent(datasetId)}/time-diagnostics?${params}`, signal)
+}
+
+export interface CollocationAnalysisConfiguration {
+  study_name: string
+  parameter_name: string
+  unit: string
+  resolution: string
+  minimum_bin_coverage: number
+  max_lag_minutes: number
+  apply_suggested_lag: boolean
+  members: CollocationMemberConfiguration[]
+  quality_gates: CollocationQualityGates
+}
+
+export async function analyzeCollocation(configuration: CollocationAnalysisConfiguration) {
+  const response = await fetch('/api/collocation/analyze', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(configuration),
+  })
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'The collocation analysis could not be completed' }))
+    throw new Error(error.detail)
+  }
+  return response.json() as Promise<CollocationResult>
+}
+
+export function getCollocationSessions(signal?: AbortSignal) {
+  return request<SavedCollocationSession[]>('/api/collocation/sessions', signal)
+}
+
+export async function saveCollocationSession(configuration: {
+  label: string
+  role: 'baseline' | 'follow_up' | 'post_deployment'
+  environment: string
+  result: CollocationResult
+}) {
+  const response = await fetch('/api/collocation/sessions', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(configuration),
+  })
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'The session could not be saved' }))
+    throw new Error(error.detail)
+  }
+  return response.json() as Promise<SavedCollocationSession>
+}
+
+export function getDriftComparison(baselineId: string, followUpId: string, signal?: AbortSignal) {
+  const params = new URLSearchParams({ baseline_id: baselineId, follow_up_id: followUpId })
+  return request<DriftComparison>(`/api/collocation/drift?${params}`, signal)
 }

@@ -186,3 +186,134 @@ export interface TimeDiagnosticsResult {
   lags: number[]
   autocorrelation: Array<number | null>
 }
+
+export interface CollocationMemberConfiguration {
+  upload_id: string
+  filename: string
+  sheet: string | null
+  sensor_name: string
+  date_column: string
+  time_column: string | null
+  measurement_column: string
+  source_unit: string
+  temperature_column: string | null
+  humidity_column: string | null
+  day_first: boolean
+}
+
+export interface CollocationQualityGates {
+  completeness: number
+  ccc: number
+  nrmse: number
+  relative_bias: number
+  slope_min: number
+  slope_max: number
+}
+
+export interface CollocationResult {
+  study: { name: string; parameter: string; unit: string }
+  summary: {
+    sensor_count: number
+    paired_bins: number
+    start: string
+    end: string
+    duration_hours: number
+    resolution: string
+    median_completeness: number
+    fleet_ccc: number | null
+    icc_single: number | null
+    icc_average: number | null
+    median_fleet_cv: number | null
+    ready_sensors: number
+    status: string
+    alignment_applied: boolean
+  }
+  sensors: Array<{
+    sensor: string
+    filename: string
+    paired_bins: number
+    completeness: number
+    mean: number | null
+    bias: number | null
+    relative_bias: number | null
+    mae: number | null
+    rmse: number | null
+    nrmse: number | null
+    pearson: number | null
+    spearman: number | null
+    r_squared: number | null
+    ccc: number | null
+    slope: number | null
+    intercept: number | null
+    agreement_limit_low: number | null
+    agreement_limit_high: number | null
+    residual_trend_per_day: number | null
+    residual_trend_p_value: number | null
+    temperature_residual_correlation: number | null
+    humidity_residual_correlation: number | null
+    status: string
+    checks: Record<string, boolean>
+    invalid_timestamps: number
+    duplicate_timestamps: number
+    median_interval_seconds: number | null
+  }>
+  alignments: Array<{
+    sensor: string
+    suggested_lag_minutes: number
+    correlation: number | null
+    status: string
+  }>
+  corrections: Array<{
+    sensor: string
+    model: string
+    formula: string
+    intercept: number
+    slope: number
+    raw_rmse: number
+    corrected_rmse: number
+    improvement_percent: number
+    validation_rmse: number
+    validation_folds: number
+    status: string
+  }>
+  pairwise: { sensors: string[]; values: Array<Array<number | null>> }
+  series: Array<{
+    timestamp: number
+    consensus: number | null
+    values: Record<string, number | null>
+    corrected: Record<string, number | null>
+  }>
+  quality_gates: CollocationQualityGates
+  warnings: string[]
+}
+
+export interface SavedCollocationSession {
+  id: string
+  study_name: string
+  parameter: string
+  unit: string
+  label: string
+  role: 'baseline' | 'follow_up' | 'post_deployment'
+  environment: string
+  created_at: string
+  summary: CollocationResult['summary']
+}
+
+export interface DriftComparison {
+  baseline: SavedCollocationSession
+  follow_up: SavedCollocationSession
+  parameter: string
+  unit: string
+  status: 'Stable' | 'Review' | 'Drift signal' | 'Insufficient'
+  sensors: Array<{
+    sensor: string
+    status: 'Stable' | 'Review' | 'Drift signal' | 'Insufficient'
+    relative_bias_change: number | null
+    nrmse_change: number | null
+    ccc_change: number | null
+    slope_change_percent: number | null
+    baseline: CollocationResult['sensors'][number]
+    follow_up: CollocationResult['sensors'][number]
+  }>
+  thresholds: Record<string, number>
+}
