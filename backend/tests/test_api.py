@@ -10,11 +10,12 @@ def test_health() -> None:
     assert response.json() == {"status": "ok"}
 
 
-def test_catalog_has_monitors_and_metrics() -> None:
+def test_catalog_is_valid_without_bundled_datasets() -> None:
     response = client.get("/api/catalog")
     assert response.status_code == 200
     body = response.json()
-    assert len(body["monitors"]) == 10
+    assert isinstance(body["monitors"], list)
+    assert body["total_rows"] == sum(dataset["rows"] for dataset in body["monitors"])
     assert any(metric["id"] == "pm25" for metric in body["metrics"])
 
 
