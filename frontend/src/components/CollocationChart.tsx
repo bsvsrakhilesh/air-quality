@@ -33,7 +33,7 @@ export function CollocationChart({ result }: { result: CollocationResult }) {
       { type: 'slider', height: 20, bottom: 10, borderColor: 'transparent', backgroundColor: '#f1f4f2', fillerColor: 'rgba(23,107,82,.12)', handleStyle: { color: '#fff', borderColor: '#9daca5' }, textStyle: { color: 'transparent' } },
     ],
     series: [
-      ...result.pairwise.sensors.map((sensor) => ({
+      ...result.pairwise.sensors.filter((sensor) => sensor !== result.study.reference).map((sensor) => ({
         name: sensor,
         type: 'line' as const,
         showSymbol: false,
@@ -43,7 +43,7 @@ export function CollocationChart({ result }: { result: CollocationResult }) {
         connectNulls: false,
       })),
       {
-        name: 'Fleet consensus',
+        name: result.study.comparison_mode === 'reference' ? `Reference · ${result.study.reference}` : 'Fleet consensus',
         type: 'line' as const,
         showSymbol: false,
         data: result.series.map((point) => [point.timestamp, point.consensus]),

@@ -74,7 +74,7 @@ The same backend, frontend, and container checks run in GitHub Actions. CodeQL s
 - **Scale path:** optional DuckDB, Polars, and PyArrow dependency group
 - **ML path:** isolated scikit-learn and MLflow dependency group, ready for background model jobs and model-serving APIs
 
-See [architecture](docs/architecture.md), [deployment](docs/deployment.md), [contributing](CONTRIBUTING.md), and [security](SECURITY.md) for details.
+See [collocation methods](docs/collocation-methods.md), [architecture](docs/architecture.md), [deployment](docs/deployment.md), [contributing](CONTRIBUTING.md), and [security](SECURITY.md) for details.
 
 ## Data and privacy
 

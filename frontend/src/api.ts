@@ -145,6 +145,11 @@ export interface CollocationAnalysisConfiguration {
   minimum_bin_coverage: number
   max_lag_minutes: number
   apply_suggested_lag: boolean
+  comparison_mode: 'ensemble' | 'reference'
+  scale_type: 'ratio' | 'interval' | 'logarithmic' | 'other'
+  minimum_peer_count: number
+  minimum_duration_hours: number
+  minimum_paired_bins: number
   members: CollocationMemberConfiguration[]
   quality_gates: CollocationQualityGates
 }

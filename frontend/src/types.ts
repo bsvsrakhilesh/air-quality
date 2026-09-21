@@ -199,21 +199,31 @@ export interface CollocationMemberConfiguration {
   temperature_column: string | null
   humidity_column: string | null
   day_first: boolean
+  role: 'sensor' | 'reference'
 }
 
 export interface CollocationQualityGates {
   completeness: number
   ccc: number
-  nrmse: number
-  relative_bias: number
+  nrmse: number | null
+  relative_bias: number | null
+  absolute_rmse: number | null
   slope_min: number
   slope_max: number
 }
 
 export interface CollocationResult {
-  study: { name: string; parameter: string; unit: string }
+  study: {
+    name: string
+    parameter: string
+    unit: string
+    comparison_mode: 'ensemble' | 'reference'
+    reference: string | null
+    scale_type: 'ratio' | 'interval' | 'logarithmic' | 'other'
+  }
   summary: {
     sensor_count: number
+    member_count: number
     paired_bins: number
     start: string
     end: string
@@ -225,17 +235,30 @@ export interface CollocationResult {
     icc_average: number | null
     median_fleet_cv: number | null
     ready_sensors: number
+    insufficient_sensors: number
     status: string
     alignment_applied: boolean
+    comparison_mode: 'ensemble' | 'reference'
+    reference: string | null
   }
   sensors: Array<{
     sensor: string
     filename: string
+    benchmark: string
     paired_bins: number
+    eligible_bins: number
+    peer_count_minimum: number
+    duration_hours: number
     completeness: number
     mean: number | null
     bias: number | null
+    bias_ci_low: number | null
+    bias_ci_high: number | null
     relative_bias: number | null
+    relative_bias_ci_low: number | null
+    relative_bias_ci_high: number | null
+    relative_metrics_applicable: boolean
+    relative_metrics_reason: string
     mae: number | null
     rmse: number | null
     nrmse: number | null
@@ -247,12 +270,26 @@ export interface CollocationResult {
     intercept: number | null
     agreement_limit_low: number | null
     agreement_limit_high: number | null
+    agreement_limit_low_ci: [number | null, number | null]
+    agreement_limit_high_ci: [number | null, number | null]
+    bootstrap_replicates: number
+    bootstrap_block_length: number | null
+    range_bias: Array<{
+      range: string
+      minimum: number | null
+      maximum: number | null
+      paired_bins: number
+      bias: number | null
+      relative_bias: number | null
+      rmse: number | null
+    }>
     residual_trend_per_day: number | null
     residual_trend_p_value: number | null
     temperature_residual_correlation: number | null
     humidity_residual_correlation: number | null
     status: string
     checks: Record<string, boolean>
+    not_applicable: Record<string, string>
     invalid_timestamps: number
     duplicate_timestamps: number
     median_interval_seconds: number | null
@@ -273,6 +310,9 @@ export interface CollocationResult {
     corrected_rmse: number
     improvement_percent: number
     validation_rmse: number
+    identity_validation_rmse: number
+    validation_improvement_percent: number
+    candidate_validation_rmse: Record<string, number | null>
     validation_folds: number
     status: string
   }>
@@ -284,6 +324,11 @@ export interface CollocationResult {
     corrected: Record<string, number | null>
   }>
   quality_gates: CollocationQualityGates
+  minimum_requirements: {
+    peer_count: number
+    duration_hours: number
+    paired_bins: number
+  }
   warnings: string[]
 }
 
@@ -304,12 +349,15 @@ export interface DriftComparison {
   follow_up: SavedCollocationSession
   parameter: string
   unit: string
+  scale_type: 'ratio' | 'interval' | 'logarithmic' | 'other'
   status: 'Stable' | 'Review' | 'Drift signal' | 'Insufficient'
   sensors: Array<{
     sensor: string
     status: 'Stable' | 'Review' | 'Drift signal' | 'Insufficient'
     relative_bias_change: number | null
+    absolute_bias_change: number | null
     nrmse_change: number | null
+    rmse_change: number | null
     ccc_change: number | null
     slope_change_percent: number | null
     baseline: CollocationResult['sensors'][number]

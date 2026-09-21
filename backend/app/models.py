@@ -1,6 +1,6 @@
-from typing import Any
+from typing import Any, Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class Point(BaseModel):
@@ -73,13 +73,15 @@ class CollocationMember(BaseModel):
     temperature_column: str | None = None
     humidity_column: str | None = None
     day_first: bool = True
+    role: Literal["sensor", "reference"] = "sensor"
 
 
 class CollocationQualityGates(BaseModel):
     completeness: float = 80.0
     ccc: float = 0.9
-    nrmse: float = 20.0
-    relative_bias: float = 10.0
+    nrmse: float | None = 20.0
+    relative_bias: float | None = 10.0
+    absolute_rmse: float | None = None
     slope_min: float = 0.85
     slope_max: float = 1.15
 
@@ -92,8 +94,13 @@ class CollocationAnalysisRequest(BaseModel):
     minimum_bin_coverage: float = 75.0
     max_lag_minutes: int = 10
     apply_suggested_lag: bool = False
+    comparison_mode: Literal["ensemble", "reference"] = "ensemble"
+    scale_type: Literal["ratio", "interval", "logarithmic", "other"] = "ratio"
+    minimum_peer_count: int = 2
+    minimum_duration_hours: float = 8.0
+    minimum_paired_bins: int = 100
     members: list[CollocationMember]
-    quality_gates: CollocationQualityGates = CollocationQualityGates()
+    quality_gates: CollocationQualityGates = Field(default_factory=CollocationQualityGates)
 
 
 class CollocationSessionCreate(BaseModel):

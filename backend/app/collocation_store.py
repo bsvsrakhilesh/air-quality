@@ -139,6 +139,8 @@ class CollocationStore:
             raise ValueError("Drift comparison requires the same canonical unit")
         baseline_sensors = {item["sensor"]: item for item in baseline["sensors"]}
         follow_sensors = {item["sensor"]: item for item in follow["sensors"]}
+        scale_type = baseline.get("study", {}).get("scale_type", "ratio")
+        absolute_rmse_gate = baseline.get("quality_gates", {}).get("absolute_rmse")
         common = sorted(set(baseline_sensors) & set(follow_sensors))
         if not common:
             raise ValueError("No sensor names match between these sessions")
@@ -149,9 +151,26 @@ class CollocationStore:
             nrmse_change = _difference(after.get("nrmse"), before.get("nrmse"))
             ccc_change = _difference(after.get("ccc"), before.get("ccc"))
             slope_change_percent = _percent_change(after.get("slope"), before.get("slope"))
-            if any(value is None for value in (relative_bias_change, nrmse_change, ccc_change, slope_change_percent)):
+            absolute_bias_change = _difference(after.get("bias"), before.get("bias"))
+            rmse_change = _difference(after.get("rmse"), before.get("rmse"))
+            if any(value is None for value in (ccc_change, slope_change_percent)):
                 status = "Insufficient"
-            elif abs(relative_bias_change) >= 10 or abs(slope_change_percent) >= 15 or (after.get("nrmse") or 0) > 20:
+            elif scale_type == "ratio" and (
+                relative_bias_change is None
+                or nrmse_change is None
+            ):
+                status = "Insufficient"
+            elif (
+                scale_type == "ratio"
+                and (
+                    abs(relative_bias_change or 0) >= 10
+                    or (after.get("nrmse") or 0) > 20
+                )
+            ) or abs(slope_change_percent) >= 15 or (
+                scale_type != "ratio"
+                and absolute_rmse_gate is not None
+                and (after.get("rmse") or 0) > absolute_rmse_gate
+            ):
                 status = "Drift signal"
             elif ccc_change < -0.05 or after.get("status") == "Review":
                 status = "Review"
@@ -162,7 +181,9 @@ class CollocationStore:
                     "sensor": sensor,
                     "status": status,
                     "relative_bias_change": relative_bias_change,
+                    "absolute_bias_change": absolute_bias_change,
                     "nrmse_change": nrmse_change,
+                    "rmse_change": rmse_change,
                     "ccc_change": ccc_change,
                     "slope_change_percent": slope_change_percent,
                     "baseline": before,
@@ -176,6 +197,7 @@ class CollocationStore:
             "follow_up": self._metadata(follow_row),
             "parameter": baseline_row["parameter_name"],
             "unit": baseline_row["unit"],
+            "scale_type": scale_type,
             "status": overall,
             "sensors": comparisons,
             "thresholds": {
