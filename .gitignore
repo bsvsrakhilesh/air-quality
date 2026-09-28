@@ -21,3 +21,5 @@ aeris-*.png
 .edgeqa*/
 .edge-qa*/
 .axiom/
+frontend/test-results/
+frontend/playwright-report/

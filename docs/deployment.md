@@ -15,7 +15,7 @@ Open `http://localhost:3000`. Stop the stack with `docker compose down`. Add `-v
 
 ## Internet deployment
 
-GitHub hosts the source, CI, security scans, and versioned images in GitHub Container Registry. GitHub Pages cannot run the FastAPI process, so deploy the Compose stack or its two images to a container host.
+GitHub hosts the source, CI, security scans, and versioned images in GitHub Container Registry. The frontend can be hosted on [GitHub Pages](github-pages.md). Pages cannot run FastAPI, so connect the frontend to a separately hosted HTTPS API or deploy the complete Compose stack to a container host.
 
 For a public deployment, place a TLS reverse proxy or managed load balancer in front of the web container and add authentication. Restrict request rates and CPU/memory, use a private object store for uploaded data, scan uploads, back up the state store, and set retention rules before accepting sensitive files.
 

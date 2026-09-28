@@ -20,7 +20,7 @@ export function MonitorPicker({ monitors, selected, metric, onChange }: Props) {
     if (selected.includes(id)) {
       if (selected.length > 1) onChange(selected.filter((item) => item !== id))
     } else {
-      onChange([...selected, id])
+      if (selected.length < 10) onChange([...selected, id])
     }
   }
 
@@ -32,8 +32,8 @@ export function MonitorPicker({ monitors, selected, metric, onChange }: Props) {
       </summary>
       <div className="picker-menu">
         <div className="picker-heading">
-          <span>Datasets</span>
-          <button type="button" onClick={() => onChange(available.map((monitor) => monitor.id))}>Select all</button>
+          <span>Datasets · up to 10</span>
+          <button type="button" onClick={() => onChange(available.slice(0, 10).map((monitor) => monitor.id))}>{available.length > 10 ? 'Select first 10' : 'Select all'}</button>
         </div>
         <div className="picker-options">
           {available.map((monitor) => {
@@ -45,6 +45,7 @@ export function MonitorPicker({ monitors, selected, metric, onChange }: Props) {
                 key={monitor.id}
                 onClick={() => toggle(monitor.id)}
                 aria-pressed={checked}
+                disabled={!checked && selected.length >= 10}
               >
                 <span className={`checkbox ${checked ? 'checked' : ''}`}>
                   {checked && <Check size={12} strokeWidth={2.5} />}

@@ -11,16 +11,21 @@ import {
   SlidersHorizontal,
   Sigma,
   Upload,
+  LayoutDashboard,
+  ShieldCheck,
+  ArrowUpRight,
 } from 'lucide-react'
 import { getCatalog, getTimeSeries, type TimeSeriesQuery } from './api'
 import { ImportDatasetDialog } from './components/ImportDatasetDialog'
 import { MonitorPicker } from './components/MonitorPicker'
-import { StatisticsWorkspace } from './components/StatisticsWorkspace'
+import Overview, { type WorkspaceView } from './components/Overview'
+import { csvCell, downloadFile, exportAnalysis } from './export'
 import { CHART_COLORS } from './components/chartColors'
 import type { Catalog, ImportedDataset, TimeSeriesResponse } from './types'
 
 const TimeSeriesChart = lazy(() => import('./components/TimeSeriesChart'))
 const CollocationWorkspace = lazy(() => import('./components/CollocationWorkspace'))
+const StatisticsWorkspace = lazy(() => import('./components/StatisticsWorkspace').then(module => ({ default: module.StatisticsWorkspace })))
 
 const PRESETS = [
   { label: '24H', hours: 24 },
@@ -46,7 +51,7 @@ function toLocalInput(value: Date | string) {
 }
 
 function apiDate(value: string) {
-  return `${value}:00`
+  return value.length === 16 ? `${value}:00` : value
 }
 
 function formatNumber(value: number | null | undefined, digits = 1) {
@@ -74,14 +79,37 @@ function App() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [importOpen, setImportOpen] = useState(() => new URLSearchParams(window.location.search).get('import') === '1')
-  const [view, setView] = useState<'series' | 'statistics' | 'collocation'>(() => {
+  const [view, setView] = useState<WorkspaceView>(() => {
     const requested = new URLSearchParams(window.location.search).get('view')
-    return requested === 'statistics' || requested === 'collocation' ? requested : 'series'
+    return requested === 'statistics' || requested === 'collocation' || requested === 'series' ? requested : 'overview'
   })
   const [statisticsDataset, setStatisticsDataset] = useState<string | undefined>()
+  const [catalogAttempt, setCatalogAttempt] = useState(0)
+  const [loadedQuery, setLoadedQuery] = useState<TimeSeriesQuery | null>(null)
+  const navigate = (next: WorkspaceView) => {
+    setView(next)
+    const url = new URL(window.location.href)
+    url.searchParams.set('view', next)
+    window.history.pushState({}, '', url)
+  }
+
+  useEffect(() => {
+    const onPopState = () => {
+      const next = new URLSearchParams(window.location.search).get('view')
+      setView(next === 'series' || next === 'statistics' || next === 'collocation' ? next : 'overview')
+    }
+    window.addEventListener('popstate', onPopState)
+    return () => window.removeEventListener('popstate', onPopState)
+  }, [])
+
+  useEffect(() => {
+    document.title = `${({ overview: 'Overview', series: 'Time series', statistics: 'Statistics', collocation: 'Collocation' })[view]} · Axiom`
+  }, [view])
 
   useEffect(() => {
     const controller = new AbortController()
+    setLoading(true)
+    setError(null)
     getCatalog(controller.signal)
       .then((response) => {
         setCatalog(response)
@@ -92,7 +120,7 @@ function App() {
           setLoading(false)
           return
         }
-        const endDate = new Date(response.range.end)
+        const endDate = new Date(preferred.end!)
         const startDate = new Date(endDate.getTime() - 7 * 24 * 60 * 60 * 1000)
         const initialQuery: TimeSeriesQuery = {
           monitors: preferred ? [preferred.id] : [],
@@ -108,41 +136,44 @@ function App() {
         setEnd(toLocalInput(endDate))
         setApplied(initialQuery)
       })
-      .catch((reason: Error) => setError(reason.message))
+      .catch((reason: Error) => { if (!controller.signal.aborted) { setError(reason.message); setLoading(false) } })
     return () => controller.abort()
-  }, [])
+  }, [catalogAttempt])
 
   useEffect(() => {
-    if (!applied) return
+    if (!applied || view !== 'series') return
     const controller = new AbortController()
     setLoading(true)
     setError(null)
     getTimeSeries(applied, controller.signal)
-      .then(setData)
+      .then(result => { if (!controller.signal.aborted) { setData(result); setLoadedQuery(applied) } })
       .catch((reason: Error) => {
         if (reason.name !== 'AbortError') setError(reason.message)
       })
-      .finally(() => setLoading(false))
+      .finally(() => { if (!controller.signal.aborted) setLoading(false) })
     return () => controller.abort()
-  }, [applied])
+  }, [applied, view])
 
-  const selectedMetric = catalog?.metrics.find((item) => item.id === metric)
+  const selectedMetric = catalog?.metrics.find((item) => item.id === (loadedQuery?.metric ?? metric))
+  const invalidRange = !start || !end || new Date(start) >= new Date(end)
+  const pendingChanges = loadedQuery && JSON.stringify({ monitors: selected, metric, start: apiDate(start), end: apiDate(end), interval, smoothing }) !== JSON.stringify(loadedQuery)
 
   const combined = useMemo(() => {
     const populated = data?.series.filter((series) => series.stats.points > 0) ?? []
     const latest = populated.map((series) => series.stats.latest).filter((value): value is number => value != null)
-    const averages = populated.map((series) => series.stats.average).filter((value): value is number => value != null)
+    const averages = populated.filter(series => series.stats.average != null)
+    const count = averages.reduce((sum, series) => sum + series.stats.points, 0)
     const peaks = populated.map((series) => series.stats.maximum).filter((value): value is number => value != null)
     return {
       latest: latest.length ? latest.reduce((sum, value) => sum + value, 0) / latest.length : null,
-      average: averages.length ? averages.reduce((sum, value) => sum + value, 0) / averages.length : null,
+      average: count ? averages.reduce((sum, series) => sum + series.stats.average! * series.stats.points, 0) / count : null,
       peak: peaks.length ? Math.max(...peaks) : null,
       samples: data?.total_points ?? 0,
     }
   }, [data])
 
   const applyFilters = () => {
-    if (!start || !end || selected.length === 0) return
+    if (invalidRange || selected.length === 0) return
     setApplied({
       monitors: selected,
       metric,
@@ -181,26 +212,20 @@ function App() {
 
   const exportCsv = () => {
     if (!data) return
-    const rows = ['monitor,timestamp,value,metric,unit']
+    const rows = ['monitor,timestamp_source_clock,value,metric,unit']
     data.series.forEach((series) => {
       series.points.forEach((point) => {
-        rows.push(`"${series.monitor_name}",${new Date(point.timestamp).toISOString()},${point.value ?? ''},"${data.metric}","${data.unit}"`)
+        rows.push([series.monitor_name, new Date(point.timestamp).toISOString().replace('Z', ''), point.value, data.metric, data.unit].map(csvCell).join(','))
       })
     })
-    const blob = new Blob([rows.join('\n')], { type: 'text/csv;charset=utf-8' })
-    const url = URL.createObjectURL(blob)
-    const link = document.createElement('a')
-    link.href = url
-    link.download = `aeris-${metric}-${start.slice(0, 10)}.csv`
-    link.click()
-    URL.revokeObjectURL(url)
+    downloadFile(`axiom-${loadedQuery?.metric}-${data.start.slice(0, 10)}.csv`, rows.join('\r\n'), 'text/csv;charset=utf-8')
   }
 
   const handleImported = async (dataset: ImportedDataset) => {
     const refreshed = await getCatalog()
     setCatalog(refreshed)
     setStatisticsDataset(dataset.id)
-    setView('statistics')
+    navigate('statistics')
     const firstMetric = dataset.metrics[0]?.id
     if (!firstMetric || !dataset.start || !dataset.end) return
     const nextStart = toLocalInput(dataset.start)
@@ -224,31 +249,32 @@ function App() {
 
   return (
     <div className="app-shell">
-      <header className="topbar">
-        <a className="brand" href="/" aria-label="Axiom home">
-          <span className="brand-mark"><Sigma size={17} strokeWidth={2.2} /></span>
-          <span>Axiom</span>
-        </a>
-        <div className="topbar-context">
-          <span className="context-divider" />
-          <span>Analysis workspace</span>
-        </div>
+      <a href="#main-content" className="skip-link">Skip to content</a>
+      <aside className="app-sidebar" aria-label="Workspace navigation">
+        <a className="brand" href="?view=overview" onClick={event => { event.preventDefault(); navigate('overview') }}><span className="brand-mark"><Sigma size={22} /></span><span>Axiom<span className="brand-caption">RESEARCH WORKSPACE</span></span></a>
+        <span className="sidebar-label">Workspace</span>
         <nav className="workspace-nav" aria-label="Workspace">
-          <button className={view === 'series' ? 'active' : ''} onClick={() => setView('series')}><ChartNoAxesCombined size={14} /> Time series</button>
-          <button className={view === 'statistics' ? 'active' : ''} onClick={() => setView('statistics')}><Sigma size={14} /> Statistics</button>
-          <button className={view === 'collocation' ? 'active' : ''} onClick={() => setView('collocation')}><FlaskConical size={14} /> Collocation</button>
+          {([{ id: 'overview', label: 'Overview', icon: LayoutDashboard }, { id: 'series', label: 'Time series', icon: ChartNoAxesCombined }, { id: 'statistics', label: 'Statistics', icon: Sigma }, { id: 'collocation', label: 'Collocation', icon: FlaskConical }] as const).map(item => <button key={item.id} aria-current={view === item.id ? 'page' : undefined} className={view === item.id ? 'active' : ''} onClick={() => navigate(item.id)}><item.icon size={18} />{item.label}{view === item.id && <span className="nav-indicator" />}</button>)}
         </nav>
+        <div className="sidebar-note"><ShieldCheck size={20} /><strong>Evidence, with context.</strong><p>Explore your data with transparent methods and reproducible results.</p><a href="https://docs.scipy.org/doc/scipy/reference/stats.html" target="_blank" rel="noreferrer">Statistical reference <ArrowUpRight size={14} /></a></div>
+        <div className="sidebar-bottom"><span className="workspace-avatar">A</span><div><strong>Research workspace</strong><small>Local data · your analysis</small></div></div>
+      </aside>
+      <header className="topbar">
+        <div className="topbar-context">
+          <span>Workspace</span><span className="breadcrumb-slash">/</span><strong>{({ overview: 'Overview', series: 'Time series', statistics: 'Statistics', collocation: 'Collocation' })[view]}</strong>
+        </div>
         <button className="topbar-import" type="button" onClick={() => setImportOpen(true)}>
           <Upload size={14} /> Import
         </button>
         <div className="topbar-status">
           <span className="status-dot" />
-          {catalog ? `${catalog.monitors.length} datasets` : 'Connecting'}
+          {catalog ? `${catalog.monitors.length} datasets` : error ? 'Unavailable' : 'Connecting'}
         </div>
       </header>
 
-      <main className="workspace">
-        {view === 'collocation' ? <Suspense fallback={<div className="analysis-loader"><LoaderCircle className="spin" /><span>Preparing collocation workspace…</span></div>}><CollocationWorkspace /></Suspense> : view === 'series' ? <>
+      <main className="workspace" id="main-content" tabIndex={-1}>
+        {error && !catalog && <div className="error-banner" role="alert"><strong>Couldn’t load your datasets.</strong><p>{error}</p><button className="button secondary" onClick={() => setCatalogAttempt(value => value + 1)}>Try again</button></div>}
+        {view === 'overview' ? catalog ? <Overview catalog={catalog} onNavigate={navigate} onImport={() => setImportOpen(true)} onDataset={id => { setStatisticsDataset(id); navigate('statistics') }} /> : !error && <div className="analysis-loader" role="status"><LoaderCircle className="spin" /><span>Preparing your workspace…</span></div> : view === 'collocation' ? <Suspense fallback={<div className="analysis-loader"><LoaderCircle className="spin" /><span>Preparing collocation workspace…</span></div>}><CollocationWorkspace /></Suspense> : view === 'series' ? <>
         <section className="page-heading">
           <div>
             <div className="eyebrow"><Activity size={14} /> Analysis</div>
@@ -259,6 +285,7 @@ function App() {
             <button className="button secondary" type="button" onClick={exportCsv} disabled={!data}>
               <Download size={15} /> Export view
             </button>
+            <button className="button secondary" type="button" disabled={!data || loading} onClick={() => exportAnalysis('axiom-timeseries.json', loadedQuery, data)}>Save analysis</button>
             <button className="button primary" type="button" onClick={() => setImportOpen(true)}>
               <Upload size={15} /> Import data
             </button>
@@ -275,7 +302,7 @@ function App() {
             </label>
             <label className="field">
               <span>Metric</span>
-              <select className="control" value={metric} onChange={(event) => changeMetric(event.target.value)}>
+              <select aria-label="Metric" className="control" value={metric} onChange={(event) => changeMetric(event.target.value)}>
                 {catalog?.metrics.map((item) => (
                   <option key={item.id} value={item.id}>{item.label} · {item.unit}</option>
                 ))}
@@ -285,17 +312,17 @@ function App() {
               <span>From</span>
               <div className="input-with-icon">
                 <CalendarDays size={14} />
-                <input className="control" type="datetime-local" value={start} onChange={(event) => { setStart(event.target.value); setActivePreset('') }} />
+                <input aria-label="From" className="control" type="datetime-local" value={start} onChange={(event) => { setStart(event.target.value); setActivePreset('') }} />
               </div>
             </label>
             <label className="field date-field">
               <span>To</span>
               <div className="input-with-icon">
                 <CalendarDays size={14} />
-                <input className="control" type="datetime-local" value={end} onChange={(event) => { setEnd(event.target.value); setActivePreset('') }} />
+                <input aria-label="To" className="control" type="datetime-local" value={end} onChange={(event) => { setEnd(event.target.value); setActivePreset('') }} />
               </div>
             </label>
-            <button className="button primary apply-button" type="button" onClick={applyFilters} disabled={!catalog || selected.length === 0}>
+            <button className="button primary apply-button" type="button" onClick={applyFilters} disabled={!catalog || selected.length === 0 || invalidRange || loading}>
               <RefreshCw size={15} className={loading ? 'spin' : ''} /> Update chart
             </button>
           </div>
@@ -334,6 +361,9 @@ function App() {
           </div>
         </section>
 
+        {invalidRange && start && end && <div className="error-banner" role="alert">Choose an end date after the start date.</div>}
+        {pendingChanges && <div className="pending-banner" role="status"><SlidersHorizontal size={15} /> Controls have changed. Update the chart to apply them; results below describe the last completed analysis.</div>}
+
         {error && <div className="error-banner" role="alert">{error}</div>}
 
         <section className="stat-grid" aria-label="Summary statistics">
@@ -345,7 +375,7 @@ function App() {
           <article className="stat-card">
             <span>Average</span>
             <strong>{formatNumber(combined.average, selectedMetric?.decimals)} <small>{selectedMetric?.unit}</small></strong>
-            <p>Arithmetic mean in selected range</p>
+            <p>Weighted by raw reading count</p>
           </article>
           <article className="stat-card">
             <span>Peak</span>
@@ -355,7 +385,7 @@ function App() {
           <article className="stat-card">
             <span>Readings analyzed</span>
             <strong>{formatCompact(combined.samples)}</strong>
-            <p>{data?.interval === 'auto' ? 'Chart detail optimized automatically' : `${interval === 'raw' ? 'Raw' : interval} chart resolution`}</p>
+            <p>{data?.interval === 'auto' ? 'Chart detail optimized automatically' : `${data?.interval === 'raw' ? 'Raw' : data?.interval ?? '—'} chart resolution`}</p>
           </article>
         </section>
 
@@ -363,10 +393,10 @@ function App() {
           <div className="card-heading">
             <div>
               <h2>{data?.metric ?? selectedMetric?.label ?? 'Measurements'}</h2>
-              <p>{start && end ? `${new Date(start).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })} – ${new Date(end).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })}` : 'Selected time range'}</p>
+              <p>{data ? `${new Date(data.start).toLocaleDateString()} – ${new Date(data.end).toLocaleDateString()}` : 'Selected time range'} · Source clock time</p>
             </div>
             <div className="chart-meta">
-              <span><span className="live-dot" /> {loading ? 'Loading data' : 'Data ready'}</span>
+              <span><span className="live-dot" /> {loading ? 'Loading data' : error ? 'Update failed' : data ? 'Data ready' : 'No data'}</span>
               <span>{data?.interval === 'auto' ? 'Auto resolution' : INTERVALS.find((item) => item.value === data?.interval)?.label}</span>
             </div>
           </div>
@@ -417,8 +447,8 @@ function App() {
         </section>
 
         </> : catalog ? (
-          <StatisticsWorkspace key={statisticsDataset ?? 'statistics'} catalog={catalog} preferredDataset={statisticsDataset} />
-        ) : <div className="analysis-loader"><LoaderCircle className="spin" /><span>Loading datasets…</span></div>}
+          <Suspense fallback={<div className="analysis-loader" role="status"><LoaderCircle className="spin" />Opening statistics…</div>}><StatisticsWorkspace key={statisticsDataset ?? 'statistics'} catalog={catalog} preferredDataset={statisticsDataset} /></Suspense>
+        ) : !error && <div className="analysis-loader"><LoaderCircle className="spin" /><span>Loading datasets…</span></div>}
         <footer className="footer">
           <span><Database size={13} /> {catalog ? `${catalog.total_rows.toLocaleString()} rows indexed` : 'Indexing data'}</span>
           <span>{catalog?.invalid_rows ? `${catalog.invalid_rows.toLocaleString()} timestamp anomalies detected` : 'Schema validation active'}</span>

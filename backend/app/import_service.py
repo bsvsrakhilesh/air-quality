@@ -1,14 +1,17 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import time
 import uuid
 from pathlib import Path
+from threading import Lock
 from typing import Any
 
 import pandas as pd
 from fastapi import UploadFile
+from starlette.concurrency import run_in_threadpool
 
 from .config import (
     IMPORTED_DIR,
@@ -20,10 +23,12 @@ from .models import ImportConfig
 
 ALLOWED_EXTENSIONS = {".csv", ".tsv", ".txt", ".json", ".xlsx", ".xls"}
 EXCEL_EXTENSIONS = {".xlsx", ".xls"}
+_REGISTRY_LOCK = Lock()
 
 STANDARD_METRICS = {
     "mc10": ("pm1", "PM1.0", "µg/m³"),
-    "pm10": ("pm1", "PM1.0", "µg/m³"),
+    "pm1": ("pm1", "PM1.0", "µg/m³"),
+    "pm10": ("pm10", "PM10", "µg/m³"),
     "mc25": ("pm25", "PM2.5", "µg/m³"),
     "pm25": ("pm25", "PM2.5", "µg/m³"),
     "mc40": ("pm4", "PM4.0", "µg/m³"),
@@ -174,7 +179,7 @@ class ImportService:
                     handle.write(chunk)
             if size == 0:
                 raise ValueError("The uploaded file is empty")
-            result = self.inspect(upload_id)
+            result = await run_in_threadpool(self.inspect, upload_id)
             result.update({"filename": original_name, "size": size})
             return result
         except Exception:
@@ -215,11 +220,15 @@ class ImportService:
 
     @staticmethod
     def _metric_definition(column: str, label: str, unit: str) -> tuple[str, str, str]:
-        standard = STANDARD_METRICS.get(_normalized(column))
+        # Preserve the decimal distinction between PM1.0 and PM10.
+        key = "pm1" if column.lower().strip() == "pm1.0" else _normalized(column)
+        standard = STANDARD_METRICS.get(key)
         if standard:
             metric_id, standard_label, standard_unit = standard
-            return metric_id, label or standard_label, unit or standard_unit
-        return f"custom__{_slug(label or column)}", label or column, unit
+            if not unit or unit.strip() == standard_unit:
+                return metric_id, label or standard_label, unit or standard_unit
+        unit_key = hashlib.sha256(unit.strip().encode()).hexdigest()[:8]
+        return f"custom__{_slug(label or column)}_{unit_key}", label or column, unit
 
     def commit(self, config: ImportConfig) -> dict[str, Any]:
         if not config.dataset_name.strip():
@@ -313,10 +322,18 @@ class ImportService:
             "metrics": metric_entries,
             "sheet": config.sheet,
         }
-        registry = load_registry()
-        registry["datasets"].append(dataset)
-        REGISTRY_PATH.parent.mkdir(parents=True, exist_ok=True)
-        REGISTRY_PATH.write_text(json.dumps(registry, indent=2), encoding="utf-8")
+        # Serialize the read/modify/write operation within this local API process.
+        # Atomic replacement also prevents readers seeing partially written JSON.
+        with _REGISTRY_LOCK:
+            registry = load_registry()
+            registry["datasets"].append(dataset)
+            REGISTRY_PATH.parent.mkdir(parents=True, exist_ok=True)
+            temporary = REGISTRY_PATH.with_suffix(f".{uuid.uuid4().hex}.tmp")
+            try:
+                temporary.write_text(json.dumps(registry, indent=2), encoding="utf-8")
+                temporary.replace(REGISTRY_PATH)
+            finally:
+                temporary.unlink(missing_ok=True)
         path.unlink(missing_ok=True)
         return {"dataset": dataset}
 

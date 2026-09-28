@@ -4,6 +4,9 @@ Axiom is a polished, general-purpose statistical analysis workspace for structur
 
 ## What it does
 
+- Searchable dataset library and responsive research workspace with keyboard navigation and recoverable errors
+- Reproducible analysis exports, normal Q–Q plots, and multiple-comparison-adjusted correlation results
+
 - Guided multi-format import with worksheet, delimiter, header, type, date, time, and measure detection
 - Complete profiling for missingness, uniqueness, duplicates, memory use, and inferred roles
 - Descriptive statistics: central tendency, dispersion, quantiles, confidence intervals, skewness, kurtosis, and robust measures
@@ -75,6 +78,8 @@ The same backend, frontend, and container checks run in GitHub Actions. CodeQL s
 - **ML path:** isolated scikit-learn and MLflow dependency group, ready for background model jobs and model-serving APIs
 
 See [collocation methods](docs/collocation-methods.md), [architecture](docs/architecture.md), [deployment](docs/deployment.md), [contributing](CONTRIBUTING.md), and [security](SECURITY.md) for details.
+
+See [analysis quality and reproducibility](docs/analysis-quality.md) for statistical assumptions, sampling, units, exports, browser checks, and operational limits.
 
 ## Data and privacy
 

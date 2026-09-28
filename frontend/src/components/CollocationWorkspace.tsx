@@ -36,6 +36,7 @@ import type {
   SavedCollocationSession,
 } from '../types'
 import { CollocationChart } from './CollocationChart'
+import { csvCell, downloadFile } from '../export'
 
 interface SensorFile {
   key: string
@@ -71,7 +72,7 @@ function recommendedColumn(inspection: ImportInspection) {
 
 function resultCsv(result: CollocationResult) {
   const sensors = result.pairwise.sensors
-  const rows = [`timestamp,consensus,${sensors.map((name) => `"${name.replaceAll('"', '""')}"`).join(',')}`]
+  const rows = [`timestamp,consensus,${sensors.map(csvCell).join(',')}`]
   result.series.forEach((point) => rows.push([
     new Date(point.timestamp).toISOString(),
     point.consensus ?? '',
@@ -83,22 +84,13 @@ function resultCsv(result: CollocationResult) {
 function correctedCsv(result: CollocationResult, approved: Set<string>) {
   const sensors = result.pairwise.sensors.filter((sensor) => approved.has(sensor))
   const headers = sensors.flatMap((sensor) => [`${sensor} raw`, `${sensor} corrected`])
-  const rows = [`timestamp,consensus,${headers.map((name) => `"${name.replaceAll('"', '""')}"`).join(',')}`]
+  const rows = [`timestamp,consensus,${headers.map(csvCell).join(',')}`]
   result.series.forEach((point) => rows.push([
     new Date(point.timestamp).toISOString(),
     point.consensus ?? '',
     ...sensors.flatMap((sensor) => [point.values[sensor] ?? '', point.corrected[sensor] ?? '']),
   ].join(',')))
   return rows.join('\n')
-}
-
-function downloadFile(name: string, content: string, type: string) {
-  const url = URL.createObjectURL(new Blob([content], { type }))
-  const anchor = document.createElement('a')
-  anchor.href = url
-  anchor.download = name
-  anchor.click()
-  URL.revokeObjectURL(url)
 }
 
 function Metric({ label, value, note }: { label: string; value: string; note: string }) {

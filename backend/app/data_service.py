@@ -7,9 +7,10 @@ from datetime import UTC, datetime, timedelta
 from functools import lru_cache
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 
-from .config import APP_DATA_DIR, DATA_DIR, MAX_CHART_POINTS, PROJECT_ROOT
+from .config import APP_DATA_DIR, DATA_DIR, MAX_CHART_POINTS, PROJECT_ROOT, REGISTRY_PATH
 from .import_service import load_registry
 
 
@@ -66,6 +67,20 @@ def _round(value: float | int | None, decimals: int = 2) -> float | None:
 class DataService:
     def __init__(self, data_dir: Path = DATA_DIR) -> None:
         self.data_dir = data_dir
+
+    @staticmethod
+    @lru_cache(maxsize=2)
+    def _dataset_file(path: str, modified_ns: int, size: int) -> pd.DataFrame:
+        # File identity participates in the cache key. Callers receive a copy so
+        # transformations cannot mutate cached source data across requests.
+        return pd.read_csv(path, low_memory=False)
+
+    def _dataset_frame(self, path: Path) -> pd.DataFrame:
+        identity = path.stat()
+        # Large files are read directly to keep retained process memory bounded.
+        if identity.st_size > 64 * 1024 * 1024:
+            return pd.read_csv(path, low_memory=False)
+        return self._dataset_file(str(path), identity.st_mtime_ns, identity.st_size).copy()
 
     @property
     def files(self) -> list[Path]:
@@ -125,7 +140,7 @@ class DataService:
         return timestamps.between(pd.Timestamp("2020-01-01"), upper)
 
     @lru_cache(maxsize=32)
-    def _bounds_for_file(self, path_text: str) -> dict:
+    def _bounds_for_file(self, path_text: str, modified_ns: int, size: int) -> dict:
         path = Path(path_text)
         frame = pd.read_csv(path, usecols=["Date", "Time"], dtype="string")
         timestamps = pd.to_datetime(
@@ -143,15 +158,21 @@ class DataService:
             "end": valid.max().isoformat() if not valid.empty else None,
         }
 
-    @lru_cache(maxsize=1)
     def catalog(self) -> dict:
+        paths = self.files + ([REGISTRY_PATH] if REGISTRY_PATH.exists() else [])
+        identity = tuple((str(path), path.stat().st_mtime_ns, path.stat().st_size) for path in paths)
+        return self._catalog_cached(identity)
+
+    @lru_cache(maxsize=1)
+    def _catalog_cached(self, identity: tuple) -> dict:
         monitors = []
         starts: list[pd.Timestamp] = []
         ends: list[pd.Timestamp] = []
 
         for path in self.files:
             header = self._header(path)
-            bounds = self._bounds_for_file(str(path))
+            stat = path.stat()
+            bounds = self._bounds_for_file(str(path), stat.st_mtime_ns, stat.st_size)
             if bounds["start"]:
                 starts.append(pd.Timestamp(bounds["start"]))
                 ends.append(pd.Timestamp(bounds["end"]))
@@ -269,7 +290,7 @@ class DataService:
         )
         if imported:
             path = self._imported_path(imported["storage_path"])
-            frame = pd.read_csv(path, low_memory=False)
+            frame = self._dataset_frame(path)
             rename = {
                 item["storage_column"]: item["name"]
                 for item in imported.get("columns", [])
@@ -281,13 +302,18 @@ class DataService:
                     for item in imported.get("metrics", [])
                     if item["storage_column"] in frame.columns
                 }
+            if "timestamp" in rename.values() and "timestamp" in frame.columns:
+                derived_name = "Parsed timestamp"
+                while derived_name in rename.values():
+                    derived_name = f"_{derived_name}"
+                frame = frame.rename(columns={"timestamp": derived_name})
             frame = frame.rename(columns=rename)
             return frame, imported
 
         path = self.data_dir / f"{dataset_id}.csv"
         if not path.exists() or path.parent.resolve() != self.data_dir.resolve():
             raise ValueError(f"Unknown dataset: {dataset_id}")
-        frame = pd.read_csv(path, low_memory=False)
+        frame = self._dataset_frame(path)
         if {"Date", "Time"}.issubset(frame.columns):
             frame.insert(
                 0,
@@ -304,8 +330,9 @@ class DataService:
         return frame, metadata
 
     def clear_caches(self) -> None:
-        self.catalog.cache_clear()
+        self._catalog_cached.cache_clear()
         self._bounds_for_file.cache_clear()
+        self._dataset_file.cache_clear()
 
     @staticmethod
     def _auto_frequency(frame: pd.DataFrame, max_points: int) -> str | None:
@@ -325,7 +352,6 @@ class DataService:
             frame.set_index("timestamp")["value"]
             .resample(frequency)
             .mean()
-            .dropna()
             .reset_index()
         )
 
@@ -345,6 +371,12 @@ class DataService:
             raise ValueError("Choose at least one monitor")
         if len(monitor_ids) > 10:
             raise ValueError("A maximum of 10 monitors can be compared")
+        if len(set(monitor_ids)) != len(monitor_ids):
+            raise ValueError("Choose distinct monitors")
+        if start and end and pd.Timestamp(start).tz_localize(None) >= pd.Timestamp(end).tz_localize(None):
+            raise ValueError("The start date must be before the end date")
+        if not 1 <= smoothing <= 60:
+            raise ValueError("Smoothing must be between 1 and 60 points")
 
         catalog_by_id = {item["id"]: item for item in self.catalog()["monitors"]}
         response_series = []
@@ -359,21 +391,27 @@ class DataService:
             if end:
                 frame = frame[frame["timestamp"] <= pd.Timestamp(end).tz_localize(None)]
 
-            original = frame.copy()
+            frame = frame[np.isfinite(frame["value"])]
+            original = frame
             frequency = INTERVALS[interval]
             if frequency is None:
                 frequency = self._auto_frequency(frame, MAX_CHART_POINTS)
                 if frequency:
                     actual_interval = "auto"
             frame = self._aggregate(frame, frequency)
+            if len(frame) > MAX_CHART_POINTS:
+                duration = (frame["timestamp"].iloc[-1] - frame["timestamp"].iloc[0]).total_seconds()
+                frequency = f"{max(1, math.ceil(duration / max(MAX_CHART_POINTS - 1, 1)))}s"
+                frame = self._aggregate(original, frequency)
+                actual_interval = "auto"
 
             if smoothing > 1 and not frame.empty:
-                frame["value"] = frame["value"].rolling(smoothing, min_periods=1).mean()
+                frame = frame.assign(value=frame["value"].rolling(smoothing, min_periods=1).mean().where(frame["value"].notna()))
 
             values = original["value"]
             stats = {
                 "latest": _round(values.iloc[-1], metric.decimals) if not values.empty else None,
-                "average": _round(values.mean(), metric.decimals),
+                "average": _round(values.mean(), 8),
                 "minimum": _round(values.min(), metric.decimals),
                 "maximum": _round(values.max(), metric.decimals),
                 "p95": _round(values.quantile(0.95), metric.decimals),

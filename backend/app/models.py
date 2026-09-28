@@ -54,11 +54,11 @@ class ImportConfig(BaseModel):
 class StatisticalTestRequest(BaseModel):
     dataset_id: str
     test: str
-    columns: list[str]
+    columns: list[str] = Field(min_length=1, max_length=2)
     group_column: str | None = None
     groups: list[str] | None = None
-    hypothesized_mean: float = 0
-    alpha: float = 0.05
+    hypothesized_mean: float = Field(default=0, allow_inf_nan=False)
+    alpha: float = Field(default=0.05, gt=0, lt=1, allow_inf_nan=False)
 
 
 class CollocationMember(BaseModel):

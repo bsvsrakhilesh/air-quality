@@ -35,6 +35,8 @@ export function TimeSeriesChart({ data, loading }: Props) {
   const option = useMemo<EChartsOption>(() => {
     const series = data?.series ?? []
     return {
+      useUTC: true,
+      animation: !window.matchMedia('(prefers-reduced-motion: reduce)').matches,
       animationDuration: 450,
       color: CHART_COLORS,
       aria: { enabled: true },
@@ -56,7 +58,7 @@ export function TimeSeriesChart({ data, loading }: Props) {
         padding: [10, 12],
         textStyle: { color: '#f8faf9', fontFamily: 'Inter, system-ui, sans-serif', fontSize: 12 },
         axisPointer: { type: 'line', lineStyle: { color: '#8f9994', width: 1, type: 'dashed' } },
-        valueFormatter: (value) => `${Number(value).toLocaleString(undefined, { maximumFractionDigits: 2 })} ${data?.unit ?? ''}`,
+        valueFormatter: (value) => value == null ? 'No observation' : `${Number(value).toLocaleString(undefined, { maximumFractionDigits: 2 })} ${data?.unit ?? ''}`,
       },
       xAxis: {
         type: 'time',

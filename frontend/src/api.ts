@@ -1,3 +1,4 @@
+import { apiUrl } from './deployment'
 import type {
   Catalog,
   CollocationMemberConfiguration,
@@ -15,12 +16,18 @@ import type {
   TimeSeriesResponse,
 } from './types'
 
+async function responseError(response: Response): Promise<Error> {
+  const payload = await response.json().catch(() => null)
+  const detail: unknown = payload?.detail
+  const message = typeof detail === 'string' ? detail : Array.isArray(detail)
+    ? detail.map((item: { loc?: unknown[]; msg?: string }) => `${item.loc?.slice(1).join('.') || 'Request'}: ${item.msg ?? 'Invalid value'}`).join('; ')
+    : `The server could not complete the request (${response.status}). Please try again.`
+  return new Error(message)
+}
+
 async function request<T>(path: string, signal?: AbortSignal): Promise<T> {
-  const response = await fetch(path, { signal })
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ detail: 'Something went wrong' }))
-    throw new Error(error.detail ?? `Request failed (${response.status})`)
-  }
+  const response = await fetch(apiUrl(path), { signal })
+  if (!response.ok) throw await responseError(response)
   return response.json() as Promise<T>
 }
 
@@ -51,10 +58,9 @@ export function getTimeSeries(query: TimeSeriesQuery, signal?: AbortSignal) {
 export async function inspectUpload(file: File, signal?: AbortSignal) {
   const body = new FormData()
   body.append('file', file)
-  const response = await fetch('/api/import/inspect', { method: 'POST', body, signal })
+  const response = await fetch(apiUrl('/api/import/inspect'), { method: 'POST', body, signal })
   if (!response.ok) {
-    const error = await response.json().catch(() => ({ detail: 'The file could not be inspected' }))
-    throw new Error(error.detail)
+    throw await responseError(response)
   }
   return response.json() as Promise<ImportInspection>
 }
@@ -76,14 +82,13 @@ export interface ImportConfiguration {
 }
 
 export async function commitImport(configuration: ImportConfiguration) {
-  const response = await fetch('/api/import/commit', {
+  const response = await fetch(apiUrl('/api/import/commit'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(configuration),
   })
   if (!response.ok) {
-    const error = await response.json().catch(() => ({ detail: 'The dataset could not be imported' }))
-    throw new Error(error.detail)
+    throw await responseError(response)
   }
   return response.json() as Promise<{ dataset: ImportedDataset }>
 }
@@ -113,15 +118,15 @@ export interface StatisticalTestConfiguration {
   alpha?: number
 }
 
-export async function runStatisticalTest(configuration: StatisticalTestConfiguration) {
-  const response = await fetch('/api/statistics/test', {
+export async function runStatisticalTest(configuration: StatisticalTestConfiguration, signal?: AbortSignal) {
+  const response = await fetch(apiUrl('/api/statistics/test'), {
     method: 'POST',
+    signal,
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(configuration),
   })
   if (!response.ok) {
-    const error = await response.json().catch(() => ({ detail: 'The test could not be completed' }))
-    throw new Error(error.detail)
+    throw await responseError(response)
   }
   return response.json() as Promise<StatisticalTestResult>
 }
@@ -155,14 +160,13 @@ export interface CollocationAnalysisConfiguration {
 }
 
 export async function analyzeCollocation(configuration: CollocationAnalysisConfiguration) {
-  const response = await fetch('/api/collocation/analyze', {
+  const response = await fetch(apiUrl('/api/collocation/analyze'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(configuration),
   })
   if (!response.ok) {
-    const error = await response.json().catch(() => ({ detail: 'The collocation analysis could not be completed' }))
-    throw new Error(error.detail)
+    throw await responseError(response)
   }
   return response.json() as Promise<CollocationResult>
 }
@@ -177,14 +181,13 @@ export async function saveCollocationSession(configuration: {
   environment: string
   result: CollocationResult
 }) {
-  const response = await fetch('/api/collocation/sessions', {
+  const response = await fetch(apiUrl('/api/collocation/sessions'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(configuration),
   })
   if (!response.ok) {
-    const error = await response.json().catch(() => ({ detail: 'The session could not be saved' }))
-    throw new Error(error.detail)
+    throw await responseError(response)
   }
   return response.json() as Promise<SavedCollocationSession>
 }

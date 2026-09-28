@@ -16,7 +16,7 @@ import type { ImportedDataset, ImportInspection } from '../types'
 interface Props {
   open: boolean
   onClose: () => void
-  onImported: (dataset: ImportedDataset) => void
+  onImported: (dataset: ImportedDataset) => void | Promise<void>
 }
 
 interface MeasurementChoice {
@@ -38,6 +38,10 @@ function formatBytes(bytes: number) {
 
 export function ImportDatasetDialog({ open, onClose, onImported }: Props) {
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const dialogRef = useRef<HTMLElement>(null)
+  const closeRef = useRef(onClose)
+  closeRef.current = onClose
+  const loadingRef = useRef(false)
   const [inspection, setInspection] = useState<ImportInspection | null>(null)
   const [datasetName, setDatasetName] = useState('')
   const [dateColumn, setDateColumn] = useState('')
@@ -48,19 +52,32 @@ export function ImportDatasetDialog({ open, onClose, onImported }: Props) {
   const [dragging, setDragging] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [imported, setImported] = useState<ImportedDataset | null>(null)
+  loadingRef.current = loading
 
   useEffect(() => {
     if (!open) return
+    const previousFocus = document.activeElement as HTMLElement | null
+    const previousOverflow = document.body.style.overflow
+    dialogRef.current?.focus()
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape' && !loading) onClose()
+      if (event.key === 'Escape' && !loadingRef.current) closeRef.current()
+      if (event.key === 'Tab') {
+        const items = Array.from(dialogRef.current?.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled):not([hidden]), select:not(:disabled), [tabindex="0"]') ?? []).filter(item => item.getClientRects().length > 0)
+        const first = items[0]
+        const last = items.at(-1)
+        if (!first) { event.preventDefault(); return }
+        if (event.shiftKey && (document.activeElement === first || document.activeElement === dialogRef.current)) { event.preventDefault(); last?.focus() }
+        else if (!event.shiftKey && (document.activeElement === last || document.activeElement === dialogRef.current)) { event.preventDefault(); first.focus() }
+      }
     }
     document.addEventListener('keydown', onKeyDown)
     document.body.style.overflow = 'hidden'
     return () => {
       document.removeEventListener('keydown', onKeyDown)
-      document.body.style.overflow = ''
+      document.body.style.overflow = previousOverflow
+      previousFocus?.focus()
     }
-  }, [open, loading, onClose])
+  }, [open])
 
   if (!open) return null
 
@@ -69,7 +86,7 @@ export function ImportDatasetDialog({ open, onClose, onImported }: Props) {
       ? { ...next, filename: inspection.filename, size: inspection.size }
       : next
     setInspection(merged)
-    setDateColumn(next.suggestions.date_column ?? next.columns[0]?.name ?? '')
+    setDateColumn(next.suggestions.date_column ?? '')
     setTimeColumn(next.suggestions.time_column ?? '')
     setMeasurements(
       next.suggestions.measurements.map((column) => ({ column, label: column, unit: '' })),
@@ -87,7 +104,7 @@ export function ImportDatasetDialog({ open, onClose, onImported }: Props) {
   }
 
   const loadFile = async (file?: File) => {
-    if (!file) return
+    if (!file || loading) return
     setLoading(true)
     setError(null)
     setImported(null)
@@ -132,7 +149,7 @@ export function ImportDatasetDialog({ open, onClose, onImported }: Props) {
   }
 
   const submit = async () => {
-    if (!inspection || !dateColumn || !datasetName.trim() || measurements.length === 0) return
+    if (!inspection || !datasetName.trim() || loading) return
     setLoading(true)
     setError(null)
     try {
@@ -158,7 +175,7 @@ export function ImportDatasetDialog({ open, onClose, onImported }: Props) {
     <div className="modal-backdrop" role="presentation" onMouseDown={(event) => {
       if (event.target === event.currentTarget && !loading) onClose()
     }}>
-      <section className="import-dialog" role="dialog" aria-modal="true" aria-labelledby="import-title">
+      <section ref={dialogRef} tabIndex={-1} className="import-dialog" role="dialog" aria-modal="true" aria-labelledby="import-title">
         <header className="import-header">
           <div>
             <span className="modal-kicker">Data source</span>
@@ -183,8 +200,8 @@ export function ImportDatasetDialog({ open, onClose, onImported }: Props) {
               <div><span>Time range</span><strong>{imported.start && imported.end ? `${new Date(imported.start).toLocaleDateString()} – ${new Date(imported.end).toLocaleDateString()}` : 'Not configured'}</strong></div>
               <div><span>Excluded rows</span><strong>{imported.invalid_rows.toLocaleString()}</strong></div>
             </div>
-            <button className="button primary success-action" type="button" onClick={() => { onImported(imported); onClose() }}>
-              Explore dataset
+            <button className="button primary success-action" type="button" disabled={loading} onClick={async () => { setLoading(true); setError(null); try { await onImported(imported); reset(); onClose() } catch (reason) { setError(reason instanceof Error ? reason.message : 'Could not refresh the workspace. Try again.') } finally { setLoading(false) } }}>
+              {loading ? 'Opening…' : 'Explore dataset'}
             </button>
           </div>
         ) : !inspection ? (

@@ -93,6 +93,7 @@ export interface ImportedDataset {
 }
 
 export interface StatColumnProfile {
+  invalid: number
   name: string
   type: 'numeric' | 'datetime' | 'categorical' | 'boolean' | 'text'
   count: number
@@ -121,6 +122,7 @@ export interface StatColumnProfile {
 }
 
 export interface StatisticalProfile {
+  invalid_cells: number
   dataset: { id: string; name: string }
   rows: number
   columns: number
@@ -147,8 +149,10 @@ export interface DistributionResult {
     outliers: number
   }
   qq_plot: Array<[number, number]>
-  normality_tests: Array<{ name: string; statistic: number; p_value: number }>
-  likely_normal: boolean
+  normality_tests: Array<{ name: string; statistic: number | null; p_value: number | null }>
+  normality_sample_size: number
+  sampling_seed: number | null
+  likely_normal: boolean | null
 }
 
 export interface CorrelationResult {
@@ -156,6 +160,9 @@ export interface CorrelationResult {
   columns: string[]
   values: Array<Array<number | null>>
   p_values: Array<Array<number | null>>
+  adjusted_p_values: Array<Array<number | null>>
+  correction: string
+  hypotheses: number
   sample_sizes: number[][]
 }
 
@@ -176,6 +183,9 @@ export interface StatisticalTestResult {
 }
 
 export interface TimeDiagnosticsResult {
+  caution: string
+  irregular_intervals: boolean
+  duplicate_timestamps: number
   count: number
   start: string
   end: string
