@@ -23,7 +23,7 @@ dev = [
 analytics = [
     "duckdb>=1.1,<2",
     "polars>=1.12,<2",
-    "pyarrow>=17,<21",
+    "pyarrow>=17,<26",
 ]
 ml = [
     "mlflow>=3,<4",
