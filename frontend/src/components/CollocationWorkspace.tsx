@@ -127,6 +127,27 @@ export function CollocationWorkspace() {
   const [resultTab, setResultTab] = useState<'overview' | 'agreement' | 'corrections' | 'methods' | 'drift'>('overview')
   const [drift, setDrift] = useState<DriftComparison | null>(null)
   const [approvedCorrections, setApprovedCorrections] = useState<Set<string>>(new Set())
+  const alignmentDialog = useRef<HTMLElement>(null)
+  const alignmentBusy = useRef(running)
+  alignmentBusy.current = running
+  useEffect(() => {
+    if (!alignmentReview) return
+    const previous = document.activeElement as HTMLElement | null
+    const overflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    alignmentDialog.current?.focus()
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && !alignmentBusy.current) setAlignmentReview(null)
+      if (event.key !== 'Tab') return
+      const controls = Array.from(alignmentDialog.current?.querySelectorAll<HTMLElement>('button:not(:disabled), [tabindex="0"]') ?? [])
+      const first = controls[0], last = controls.at(-1)
+      if (!first) { event.preventDefault(); return }
+      if (event.shiftKey && (document.activeElement === first || document.activeElement === alignmentDialog.current)) { event.preventDefault(); last?.focus() }
+      else if (!event.shiftKey && (document.activeElement === last || document.activeElement === alignmentDialog.current)) { event.preventDefault(); first.focus() }
+    }
+    document.addEventListener('keydown', onKey)
+    return () => { document.body.style.overflow = overflow; document.removeEventListener('keydown', onKey); previous?.focus() }
+  }, [alignmentReview])
 
   const completeFiles = files.filter((file) => file.dateColumn && file.measurementColumn && file.sensorName.trim())
   const referenceCount = completeFiles.filter((file) => file.role === 'reference').length
@@ -134,7 +155,10 @@ export function CollocationWorkspace() {
   const authorityReady = comparisonMode === 'ensemble'
     ? completeFiles.length >= Math.max(3, minimumPeerCount + 1)
     : referenceCount === 1 && targetCount >= 1
-  const ready = authorityReady && Boolean(parameter.trim()) && !running
+  const duplicateNames = new Set(files.map(file => file.sensorName.trim().toLowerCase())).size !== files.length
+  const validGates = gates.completeness >= 0 && gates.completeness <= 100 && gates.ccc >= -1 && gates.ccc <= 1 && gates.slope_min <= gates.slope_max && (gates.nrmse == null || gates.nrmse >= 0) && (gates.relative_bias == null || gates.relative_bias >= 0) && (gates.absolute_rmse == null || gates.absolute_rmse >= 0) && Number.isInteger(minimumPeerCount) && minimumPeerCount >= 2
+  const runReason = loadingFiles ? 'Wait for file inspection to finish.' : duplicateNames ? 'Give every sensor a unique name.' : completeFiles.length !== files.length ? 'Complete the timestamp, measurement, and name for every file.' : !authorityReady ? comparisonMode === 'ensemble' ? `Add at least ${Math.max(3, minimumPeerCount + 1)} sensors.` : 'Add exactly one reference and at least one sensor.' : !parameter.trim() ? 'Name the shared analysis parameter.' : !studyName.trim() ? 'Give this study a name.' : !validGates ? 'Review quality gates: percentages must be nonnegative, completeness at most 100%, CCC between -1 and 1, slope minimum no greater than maximum, and peer count an integer of at least 2.' : ''
+  const ready = !runReason && !running
   const mappedMeasurementNames = useMemo(() => new Set(files.map((file) => file.measurementColumn).filter(Boolean)).size, [files])
   const compatibleBaselines = savedSessions.filter((session) => session.role === 'baseline' && (!parameter || session.parameter === parameter))
 
@@ -146,7 +170,7 @@ export function CollocationWorkspace() {
 
   const addFiles = async (incoming: FileList | File[]) => {
     const selected = Array.from(incoming)
-    if (!selected.length) return
+    if (!selected.length || running || loadingFiles) return
     setError(null)
     setLoadingFiles((count) => count + selected.length)
     const settled = await Promise.allSettled(selected.map(async (file, index) => {
@@ -321,10 +345,10 @@ export function CollocationWorkspace() {
           <span className="readiness-score">{result.summary.ready_sensors}/{result.summary.sensor_count}</span>
         </section>
 
-        <div className="result-nav" role="tablist">
-          {(['overview', 'agreement', 'corrections', 'methods'] as const).map((tab) => <button key={tab} className={resultTab === tab ? 'active' : ''} onClick={() => setResultTab(tab)} type="button">{tab === 'overview' ? 'Executive overview' : tab[0].toUpperCase() + tab.slice(1)}</button>)}
+        <nav className="result-nav" aria-label="Collocation report sections">
+          {(['overview', 'agreement', 'corrections', 'methods'] as const).map((tab) => <button key={tab} aria-pressed={resultTab === tab} className={resultTab === tab ? 'active' : ''} onClick={() => setResultTab(tab)} type="button">{tab === 'overview' ? 'Executive overview' : tab[0].toUpperCase() + tab.slice(1)}</button>)}
           {drift && <button className={resultTab === 'drift' ? 'active' : ''} onClick={() => setResultTab('drift')} type="button">Drift since baseline</button>}
-        </div>
+        </nav>
 
         {resultTab === 'overview' && <>
           <section className="collocation-metric-grid">
@@ -406,11 +430,11 @@ export function CollocationWorkspace() {
 
       {error && <div className="error-banner" role="alert"><AlertCircle size={15} /> {error}</div>}
 
-      <div className="collocation-setup-grid">
-        <main className="setup-main">
+      <fieldset className="collocation-setup-grid setup-fieldset" disabled={running || loadingFiles > 0}>
+        <div className="setup-main">
           <section className="collocation-panel upload-panel">
             <div className="panel-heading"><div><span>Step 1</span><h2>Add sensor files</h2><p>Upload one file per sensor. Axiom reads headers and samples before anything is analyzed.</p></div><b>{files.length} files</b></div>
-            <input ref={fileInput} hidden multiple type="file" accept=".csv,.tsv,.txt,.json,.xlsx,.xls" onChange={(event) => event.target.files && addFiles(event.target.files)} />
+            <input ref={fileInput} hidden multiple type="file" accept=".csv,.tsv,.txt,.json,.xlsx,.xls" onChange={(event) => { if (event.target.files) void addFiles(event.target.files); event.target.value = '' }} />
             {files.length === 0 ? <button className={`collocation-drop ${dragging ? 'dragging' : ''}`} type="button" onClick={() => fileInput.current?.click()} onDragEnter={(event) => { event.preventDefault(); setDragging(true) }} onDragOver={(event) => event.preventDefault()} onDragLeave={() => setDragging(false)} onDrop={(event) => { event.preventDefault(); setDragging(false); addFiles(event.dataTransfer.files) }}>
               <span><UploadCloud size={24} /></span><strong>{loadingFiles ? 'Reading column names…' : 'Drop all sensor files here'}</strong><p>or click to browse · CSV, text, JSON and Excel · 100 MB each</p><small>Files may use different column names and sampling intervals.</small>
             </button> : <>
@@ -419,11 +443,8 @@ export function CollocationWorkspace() {
             </>}
             {loadingFiles > 0 && <div className="inline-loading"><LoaderCircle className="spin" size={15} /> Inspecting {loadingFiles} {loadingFiles === 1 ? 'file' : 'files'}…</div>}
           </section>
-        </main>
-
-        <aside className="study-sidebar">
           <section className="collocation-panel study-card">
-            <div className="panel-heading"><div><span>Study setup</span><h2>Analysis definition</h2></div></div>
+            <div className="panel-heading"><div><span>Step 2</span><h2>Define the analysis</h2><p>Choose the comparison method and evidence required for this study.</p></div></div><div className="study-fields">
             <label className="field"><span>Study name</span><input className="control" value={studyName} onChange={(event) => setStudyName(event.target.value)} /></label>
             <label className="field"><span>Comparison authority</span><select className="control" value={comparisonMode} onChange={(event) => changeComparisonMode(event.target.value as typeof comparisonMode)}><option value="ensemble">Peer ensemble · relative agreement</option><option value="reference">External reference · accuracy evaluation</option></select><small>{comparisonMode === 'ensemble' ? 'Each sensor is compared with the median of its valid peers.' : 'Mark exactly one uploaded file as the reference instrument.'}</small></label>
             <div className="side-fields"><label className="field"><span>Parameter name</span><input className="control" value={parameter} onChange={(event) => setParameter(event.target.value)} placeholder="e.g. CO₂, NO₂, temperature" /></label><label className="field unit-field"><span>Unit</span><input className="control" value={unit} onChange={(event) => setUnit(event.target.value)} placeholder="ppm" /></label></div>
@@ -433,20 +454,25 @@ export function CollocationWorkspace() {
             <div className="side-fields session-fields"><label className="field"><span>Session role</span><select className="control" value={sessionRole} onChange={(event) => { const role = event.target.value as typeof sessionRole; setSessionRole(role); setSessionLabel(role === 'baseline' ? 'Baseline' : role === 'follow_up' ? '60-day follow-up' : 'Post-deployment') }}><option value="baseline">Baseline</option><option value="follow_up">Follow-up</option><option value="post_deployment">Post-deployment</option></select></label><label className="field"><span>Environment</span><select className="control" value={environment} onChange={(event) => setEnvironment(event.target.value)}><option>Indoor</option><option>Outdoor</option><option>Laboratory</option><option>Mixed</option></select></label></div>
             <label className="field"><span>Session label</span><input className="control" value={sessionLabel} onChange={(event) => setSessionLabel(event.target.value)} /></label>
             {sessionRole !== 'baseline' && <label className="field"><span>Compare with baseline</span><select className="control" value={baselineId} onChange={(event) => setBaselineId(event.target.value)}><option value="">Save without comparison</option>{compatibleBaselines.map((session) => <option value={session.id} key={session.id}>{session.label} · {session.parameter} · {new Date(session.created_at).toLocaleDateString()}</option>)}</select></label>}
-            <button className="advanced-toggle" type="button" onClick={() => setAdvanced(!advanced)}><Settings2 size={14} /> Quality gates <ChevronDown className={advanced ? 'open' : ''} size={14} /></button>
+            </div><button aria-expanded={advanced} className="advanced-toggle" type="button" onClick={() => setAdvanced(!advanced)}><Settings2 size={14} /> Quality gates <ChevronDown className={advanced ? 'open' : ''} size={14} /></button>
             {advanced && <div className="gate-grid">{comparisonMode === 'ensemble' && <GateInput label="Valid peers ≥" value={minimumPeerCount} onChange={setMinimumPeerCount} />}<GateInput label="Completeness ≥" value={gates.completeness} suffix="%" onChange={(value) => setGates({ ...gates, completeness: value })} /><GateInput label="CCC ≥" value={gates.ccc} step="0.01" onChange={(value) => setGates({ ...gates, ccc: value })} />{scaleType === 'ratio' ? <><GateInput label="NRMSE ≤" value={gates.nrmse ?? 20} suffix="%" onChange={(value) => setGates({ ...gates, nrmse: value })} /><GateInput label="Relative bias ≤" value={gates.relative_bias ?? 10} suffix="%" onChange={(value) => setGates({ ...gates, relative_bias: value })} /></> : <OptionalGateInput label="Absolute RMSE ≤" value={gates.absolute_rmse} unit={unit} onChange={(value) => setGates({ ...gates, absolute_rmse: value })} />}<GateInput label="Slope min" value={gates.slope_min} step="0.01" onChange={(value) => setGates({ ...gates, slope_min: value })} /><GateInput label="Slope max" value={gates.slope_max} step="0.01" onChange={(value) => setGates({ ...gates, slope_max: value })} /></div>}
+          </section>
+        </div>
+        <aside className="study-sidebar">
+          <section className="collocation-panel study-card run-card">
+            <div className="panel-heading"><div><span>Step 3</span><h2>Review & run</h2><p>Your setup stays here when you switch pages.</p></div></div>
             <div className="readiness-checks">
               <div className={authorityReady ? 'done' : ''}><span>{authorityReady ? <Check size={11} /> : completeFiles.length}</span><p><strong>{comparisonMode === 'ensemble' ? `${Math.max(3, minimumPeerCount + 1)} or more sensors` : 'One reference and sensor'}</strong><small>{comparisonMode === 'ensemble' ? `At least ${minimumPeerCount} peers must be valid per comparison` : `${referenceCount} reference · ${targetCount} sensors`}</small></p></div>
               <div className={completeFiles.length === files.length && files.length > 0 ? 'done' : ''}><span>{completeFiles.length === files.length && files.length > 0 ? <Check size={11} /> : completeFiles.length}</span><p><strong>Mappings complete</strong><small>{files.length ? `${completeFiles.length} of ${files.length} ready` : 'Waiting for files'}</small></p></div>
               <div className={parameter.trim() ? 'done' : ''}><span>{parameter.trim() ? <Check size={11} /> : '–'}</span><p><strong>Parameter defined</strong><small>{mappedMeasurementNames > 1 ? 'Different source columns mapped' : 'One shared analysis parameter'}</small></p></div>
             </div>
             <button className="run-collocation" type="button" disabled={!ready} onClick={() => run(false)}>{running ? <><LoaderCircle className="spin" size={16} /> Running analysis…</> : <><CircleGauge size={16} /> Run collocation analysis <ArrowRight size={15} /></>}</button>
-            {!ready && <p className="run-help">{comparisonMode === 'ensemble' ? `Add at least ${Math.max(3, minimumPeerCount + 1)} sensors` : 'Add a reference and at least one sensor'}, complete their mappings, and name the parameter.</p>}
+            {!ready && <p className="run-help" role="status">{running ? 'Analyzing uploaded observations. This may take a moment.' : runReason}</p>}
           </section>
           <section className="method-card"><Sparkles size={15} /><div><strong>Designed for any sensor</strong><p>PM, gases, CO₂, VOCs, meteorology, noise, radiation, or any shared numeric response.</p></div></section>
         </aside>
-      </div>
-      {alignmentReview && <div className="modal-backdrop alignment-backdrop" role="presentation"><section className="alignment-review" role="dialog" aria-modal="true" aria-labelledby="alignment-review-title"><header><span><Clock3 size={18} /></span><div><small>Review required</small><h2 id="alignment-review-title">Confirm clock alignment</h2><p>Axiom detected possible clock offsets from changes in the shared fleet signal. No timestamp has been altered.</p></div></header><div className="alignment-review-list">{alignmentReview.alignments.map((item) => <div key={item.sensor}><strong>{item.sensor}</strong><span className={item.suggested_lag_minutes ? 'shifted' : ''}>{item.suggested_lag_minutes === 0 ? 'No shift' : `${item.suggested_lag_minutes > 0 ? '+' : ''}${item.suggested_lag_minutes} min`}</span><small>evidence r = {item.correlation?.toFixed(3) ?? '—'}</small></div>)}</div><div className="alignment-explanation"><Info size={14} /><p>Approve only when the suggested offsets are plausible for the device clocks. Applied shifts are analytical metadata; raw timestamps remain unchanged.</p></div><footer><button className="button secondary" type="button" disabled={running} onClick={() => acceptResult(alignmentReview)}>Keep original timestamps</button><button className="button primary" type="button" disabled={running} onClick={() => run(true)}>{running ? <LoaderCircle className="spin" size={14} /> : <Check size={14} />} Approve suggested shifts</button></footer></section></div>}
+      </fieldset>
+      {alignmentReview && <div className="modal-backdrop alignment-backdrop" role="presentation"><section ref={alignmentDialog} tabIndex={-1} className="alignment-review" role="dialog" aria-modal="true" aria-labelledby="alignment-review-title"><header><span><Clock3 size={18} /></span><div><small>Review required</small><h2 id="alignment-review-title">Confirm clock alignment</h2><p>Axiom detected possible clock offsets from changes in the shared fleet signal. No timestamp has been altered.</p></div></header><div className="alignment-review-list">{alignmentReview.alignments.map((item) => <div key={item.sensor}><strong>{item.sensor}</strong><span className={item.suggested_lag_minutes ? 'shifted' : ''}>{item.suggested_lag_minutes === 0 ? 'No shift' : `${item.suggested_lag_minutes > 0 ? '+' : ''}${item.suggested_lag_minutes} min`}</span><small>evidence r = {item.correlation?.toFixed(3) ?? '—'}</small></div>)}</div><div className="alignment-explanation"><Info size={14} /><p>Approve only when the suggested offsets are plausible for the device clocks. Applied shifts are analytical metadata; raw timestamps remain unchanged.</p></div><footer><button className="button secondary" type="button" disabled={running} onClick={() => setAlignmentReview(null)}>Back to setup</button><button className="button secondary" type="button" disabled={running} onClick={() => acceptResult(alignmentReview)}>Keep original timestamps</button><button className="button primary" type="button" disabled={running} onClick={() => run(true)}>{running ? <LoaderCircle className="spin" size={14} /> : <Check size={14} />} Approve suggested shifts</button></footer></section></div>}
     </div>
   )
 }
@@ -470,6 +496,7 @@ function SensorMapping({ file, index, comparisonMode, onRole, onChange, onSheet,
       <label><span>Sensor name</span><input value={file.sensorName} onChange={(event) => onChange({ sensorName: event.target.value })} /></label>
       {file.inspection.sheets.length > 0 && <label><span>Worksheet</span><select value={file.inspection.selected_sheet ?? ''} onChange={(event) => onSheet(event.target.value)}>{file.inspection.sheets.map((sheet) => <option key={sheet}>{sheet}</option>)}</select></label>}
       <label><span>Timestamp column</span><select value={file.dateColumn} onChange={(event) => onChange({ dateColumn: event.target.value })}><option value="">Select column…</option>{columns.map((column) => <option key={column.name} value={column.name}>{column.name} · {column.type}</option>)}</select></label>
+      <label><span>Date order</span><select value={file.dayFirst ? 'day' : 'month'} onChange={event => onChange({ dayFirst: event.target.value === 'day' })}><option value="day">Day first (DD/MM/YYYY)</option><option value="month">Month first (MM/DD/YYYY)</option></select></label>
       <label><span>Separate time <em>Optional</em></span><select value={file.timeColumn} onChange={(event) => onChange({ timeColumn: event.target.value })}><option value="">Already included / none</option>{columns.filter((column) => column.name !== file.dateColumn).map((column) => <option key={column.name}>{column.name}</option>)}</select></label>
       <label className="measurement-select"><span>Measurement column · source unit</span><div className="measurement-control"><select value={file.measurementColumn} onChange={(event) => onChange({ measurementColumn: event.target.value })}><option value="">Select numeric column…</option>{numeric.map((column) => <option key={column.name} value={column.name}>{column.name} · {column.sample.slice(0, 2).join(', ')}</option>)}</select><input value={file.sourceUnit} onChange={(event) => onChange({ sourceUnit: event.target.value })} placeholder="same" aria-label={`${file.sensorName} source unit`} /></div></label>
       <details><summary>Environmental covariates <ChevronDown size={12} /></summary><div><label><span>Temperature</span><select value={file.temperatureColumn} onChange={(event) => onChange({ temperatureColumn: event.target.value })}><option value="">Not mapped</option>{numeric.filter((column) => column.name !== file.measurementColumn).map((column) => <option key={column.name}>{column.name}</option>)}</select></label><label><span>Humidity</span><select value={file.humidityColumn} onChange={(event) => onChange({ humidityColumn: event.target.value })}><option value="">Not mapped</option>{numeric.filter((column) => column.name !== file.measurementColumn).map((column) => <option key={column.name}>{column.name}</option>)}</select></label></div></details>

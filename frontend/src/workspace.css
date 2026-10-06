@@ -151,6 +151,54 @@ tbody tr:hover { background: #fafcf9; }
 }
 
 .hosted-shell { min-height: 100vh; background: #f6f7f5; }
+[hidden] { display: none !important; }
+.workspace-state { display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; min-height: 220px; padding: 32px 24px; gap: 12px; }
+.workspace-state .state-icon { display: grid; place-items: center; width: 44px; height: 44px; border-radius: 12px; background: var(--accent-soft); color: var(--accent); }
+.workspace-state h2 { margin: 0; font-size: 18px; }
+.workspace-state p { max-width: 460px; margin: 0; color: var(--muted); font-size: 14px; line-height: 1.7; }
+.picker-search { display: flex; align-items: center; gap: 8px; padding: 12px; border-bottom: 1px solid var(--line); }
+.picker-search input { min-width: 0; width: 100%; border: 0; background: transparent; font: inherit; padding: 7px 0; }
+.picker-empty { padding: 12px; font-size: 13px; color: var(--muted); }
+.setup-fieldset { border: 0; padding: 0; margin: 0; min-width: 0; }
+.mapping-fieldset { border: 0; padding: 0; margin: 0; min-inline-size: 0; }
+.setup-main { display: flex; flex-direction: column; gap: 20px; }
+.study-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 24px; align-items: start; }
+.study-fields > .side-fields { grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); }
+.study-fields .field { min-width: 0; }
+.study-sidebar { align-self: start; }
+.run-card .readiness-checks { margin-top: 0; }
+.study-card .run-help { color: #755521; }
+.statistics-heading { flex-wrap: wrap; }
+.statistics-toolbar { flex: 1 1 100%; justify-content: flex-start; gap: 16px; }
+.statistics-toolbar .dataset-select { order: -1; flex: 1 1 240px; min-width: 0; max-width: 480px; }
+.statistics-toolbar .dataset-select select { width: 100%; min-width: 0; }
+.button, .control, .dataset-select select, .mapping-fields input, .mapping-fields select { min-height: 44px; font-size: 14px; }
+.field > span, .mapping-fields label > span, .inline-field, .mode-switch button, .analysis-tabs button, .result-nav button { font-size: 13px; }
+.mode-switch button, .analysis-tabs button, .result-nav button, .library-action, .advanced-toggle { min-height: 44px; }
+.stat-card > p, .stat-card > span, .overview-metrics .stat-card > span, .dataset-name small, .research-principle p, .footer { font-size: 12px; }
+.analysis-card p, .panel-heading p, .analysis-controls-card p, .study-card .field > small { font-size: 13px; }
+.dataset-name strong, .sensor-map-card header strong { overflow-wrap: anywhere; }
+.alignment-review { max-height: calc(100dvh - 32px); overflow-y: auto; }
+.alignment-review footer { flex-wrap: wrap; }
+.table-wrap { scrollbar-width: thin; }
+@media (max-width: 1250px) { .study-sidebar { display: grid; grid-template-columns: minmax(0, 1fr) minmax(220px, .6fr); gap: 20px; } }
+@media (max-width: 720px) {
+  .study-fields, .study-sidebar { display: grid; grid-template-columns: minmax(0, 1fr); }
+  .statistics-toolbar { align-items: stretch; }
+  .statistics-toolbar .dataset-select { flex-basis: 100%; max-width: none; }
+  .page-heading .button, .workspace-nav button { min-height: 44px; font-size: 13px; }
+  .dataset-library table, .dataset-library tbody { display: block; min-width: 0; width: 100%; }
+  .dataset-library thead { display: none; }
+  .dataset-library tr { display: grid; grid-template-columns: minmax(0,1fr); padding: 18px; border-top: 1px solid var(--line); }
+  .dataset-library td { display: flex; align-items: center; justify-content: space-between; gap: 12px; border: 0; padding: 8px 0; white-space: normal; }
+  .dataset-library td[data-label]::before { content: attr(data-label); color: var(--muted); font-size: 12px; flex-shrink: 0; }
+  .dataset-library td:last-child { justify-content: flex-end; padding-bottom: 0; }
+  .dataset-library .dataset-name { min-width: 0; }
+  .dataset-library .dataset-name div { min-width: 0; }
+  .dataset-library .dataset-name strong, .dataset-library .dataset-name small { white-space: normal; overflow-wrap: anywhere; }
+  .dataset-library .library-action { border: 1px solid var(--line); border-radius: 8px; padding: 8px 14px; }
+  .workflow-steps { overflow-x: auto; }
+}
 .hosted-header { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 25px max(24px, calc((100vw - 1060px) / 2)); border-bottom: 1px solid var(--line); background: white; }
 .hosted-header > span { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); }
 .hosted-main { max-width: 1060px; margin: auto; padding: 64px 24px; }

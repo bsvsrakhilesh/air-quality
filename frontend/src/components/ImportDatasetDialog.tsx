@@ -242,10 +242,10 @@ export function ImportDatasetDialog({ open, onClose, onImported }: Props) {
             <div className="file-summary">
               <span className="file-type-icon"><FileSpreadsheet size={18} /></span>
               <div><strong>{inspection.filename}</strong><span>{formatBytes(inspection.size)} · {inspection.columns.length} columns detected</span></div>
-              <button type="button" onClick={reset}><ArrowLeft size={13} /> Replace</button>
+              <button type="button" disabled={loading} onClick={reset}><ArrowLeft size={13} /> Replace</button>
             </div>
 
-            <div className="mapping-scroll">
+            <fieldset disabled={loading} className="mapping-scroll mapping-fieldset">
               <div className="mapping-section two-column-fields">
                 <label className="field">
                   <span>Dataset name</span>
@@ -266,7 +266,7 @@ export function ImportDatasetDialog({ open, onClose, onImported }: Props) {
                 <div className="two-column-fields inset-fields">
                   <label className="field">
                     <span>Date or timestamp column</span>
-                    <select className="control" value={dateColumn} onChange={(event) => setDateColumn(event.target.value)}>
+                    <select className="control" value={dateColumn} onChange={(event) => { const next = event.target.value; setDateColumn(next); setTimeColumn(''); setMeasurements(current => current.filter(item => item.column !== next)) }}>
                       <option value="">No time column · statistics only</option>
                       {inspection.columns.map((column) => <option key={column.name} value={column.name}>{column.name}</option>)}
                     </select>
@@ -293,7 +293,7 @@ export function ImportDatasetDialog({ open, onClose, onImported }: Props) {
                     const choice = measurements.find((item) => item.column === column.name)
                     return (
                       <div className={`column-row ${choice ? 'selected' : ''}`} key={column.name}>
-                        <button className="column-toggle" type="button" onClick={() => toggleMeasurement(column.name)} aria-pressed={Boolean(choice)}>
+                        <button className="column-toggle" type="button" disabled={column.type !== 'number'} title={column.type !== 'number' ? 'Available in statistics; time series requires numeric values.' : undefined} onClick={() => toggleMeasurement(column.name)} aria-pressed={Boolean(choice)}>
                           <span className={`checkbox ${choice ? 'checked' : ''}`}>{choice && <Check size={12} />}</span>
                           <span><strong>{column.name}</strong><small>{column.type} · {column.sample.join(', ') || 'No sample values'}</small></span>
                         </button>
@@ -308,7 +308,7 @@ export function ImportDatasetDialog({ open, onClose, onImported }: Props) {
                   })}
                 </div>
               </div>
-            </div>
+            </fieldset>
 
             <footer className="import-footer">
               <span>{inspection.sample_rows} sample rows inspected</span>

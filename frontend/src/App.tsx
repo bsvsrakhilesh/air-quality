@@ -17,6 +17,7 @@ import {
 } from 'lucide-react'
 import { getCatalog, getTimeSeries, type TimeSeriesQuery } from './api'
 import { ImportDatasetDialog } from './components/ImportDatasetDialog'
+import { WorkspaceState } from './components/WorkspaceState'
 import { MonitorPicker } from './components/MonitorPicker'
 import Overview, { type WorkspaceView } from './components/Overview'
 import { csvCell, downloadFile, exportAnalysis } from './export'
@@ -83,6 +84,8 @@ function App() {
     const requested = new URLSearchParams(window.location.search).get('view')
     return requested === 'statistics' || requested === 'collocation' || requested === 'series' ? requested : 'overview'
   })
+  const [visited, setVisited] = useState<Set<WorkspaceView>>(() => new Set([view]))
+  useEffect(() => { setVisited(current => current.has(view) ? current : new Set([...current, view])) }, [view])
   const [statisticsDataset, setStatisticsDataset] = useState<string | undefined>()
   const [catalogAttempt, setCatalogAttempt] = useState(0)
   const [loadedQuery, setLoadedQuery] = useState<TimeSeriesQuery | null>(null)
@@ -116,7 +119,6 @@ function App() {
         const preferred = response.monitors.find((dataset) => dataset.metrics.length > 0 && dataset.start && dataset.end)
         const initialMetric = preferred?.metrics[0] ?? response.metrics[0]?.id ?? ''
         if (!preferred || !response.range.end) {
-          setView((current) => current === 'series' ? 'statistics' : current)
           setLoading(false)
           return
         }
@@ -186,9 +188,10 @@ function App() {
 
   const setPreset = (label: string, hours: number | null) => {
     if (!catalog?.range.start || !catalog.range.end) return
-    const endDate = new Date(catalog.range.end)
+    const members = catalog.monitors.filter(item => selected.includes(item.id) && item.start && item.end)
+    const endDate = new Date(members.length ? Math.max(...members.map(item => new Date(item.end!).getTime())) : catalog.range.end)
     const startDate = hours == null
-      ? new Date(catalog.range.start)
+      ? new Date(members.length ? Math.min(...members.map(item => new Date(item.start!).getTime())) : catalog.range.start)
       : new Date(endDate.getTime() - hours * 60 * 60 * 1000)
     setStart(toLocalInput(startDate))
     setEnd(toLocalInput(endDate))
@@ -274,7 +277,7 @@ function App() {
 
       <main className="workspace" id="main-content" tabIndex={-1}>
         {error && !catalog && <div className="error-banner" role="alert"><strong>Couldn’t load your datasets.</strong><p>{error}</p><button className="button secondary" onClick={() => setCatalogAttempt(value => value + 1)}>Try again</button></div>}
-        {view === 'overview' ? catalog ? <Overview catalog={catalog} onNavigate={navigate} onImport={() => setImportOpen(true)} onDataset={id => { setStatisticsDataset(id); navigate('statistics') }} /> : !error && <div className="analysis-loader" role="status"><LoaderCircle className="spin" /><span>Preparing your workspace…</span></div> : view === 'collocation' ? <Suspense fallback={<div className="analysis-loader"><LoaderCircle className="spin" /><span>Preparing collocation workspace…</span></div>}><CollocationWorkspace /></Suspense> : view === 'series' ? <>
+        {view === 'overview' ? catalog ? <Overview catalog={catalog} onNavigate={navigate} onImport={() => setImportOpen(true)} onDataset={id => { setStatisticsDataset(id); navigate('statistics') }} /> : !error && <div className="analysis-loader" role="status"><LoaderCircle className="spin" /><span>Preparing your workspace…</span></div> : view === 'series' ? <>
         <section className="page-heading">
           <div>
             <div className="eyebrow"><Activity size={14} /> Analysis</div>
@@ -282,7 +285,7 @@ function App() {
             <p>Explore temporal patterns, compare datasets, and inspect every observation.</p>
           </div>
           <div className="heading-actions">
-            <button className="button secondary" type="button" onClick={exportCsv} disabled={!data}>
+            <button className="button secondary" type="button" onClick={exportCsv} disabled={!data || loading}>
               <Download size={15} /> Export view
             </button>
             <button className="button secondary" type="button" disabled={!data || loading} onClick={() => exportAnalysis('axiom-timeseries.json', loadedQuery, data)}>Save analysis</button>
@@ -294,12 +297,12 @@ function App() {
 
         <section className="filter-card" aria-label="Chart controls">
           <div className="filter-row primary-filters">
-            <label className="field monitor-field">
+            <div className="field monitor-field">
               <span>Dataset</span>
               {catalog
                 ? <MonitorPicker monitors={catalog.monitors} selected={selected} metric={metric} onChange={setSelected} />
                 : <div className="control skeleton-control" />}
-            </label>
+            </div>
             <label className="field">
               <span>Metric</span>
               <select aria-label="Metric" className="control" value={metric} onChange={(event) => changeMetric(event.target.value)}>
@@ -361,6 +364,7 @@ function App() {
           </div>
         </section>
 
+        {catalog && selected.length === 0 && <WorkspaceState title="Select a dataset with this metric">Choose another metric or import a dataset with a timestamp and numeric measurements.</WorkspaceState>}
         {invalidRange && start && end && <div className="error-banner" role="alert">Choose an end date after the start date.</div>}
         {pendingChanges && <div className="pending-banner" role="status"><SlidersHorizontal size={15} /> Controls have changed. Update the chart to apply them; results below describe the last completed analysis.</div>}
 
@@ -384,7 +388,7 @@ function App() {
           </article>
           <article className="stat-card">
             <span>Readings analyzed</span>
-            <strong>{formatCompact(combined.samples)}</strong>
+            <strong>{data ? formatCompact(combined.samples) : '—'}</strong>
             <p>{data?.interval === 'auto' ? 'Chart detail optimized automatically' : `${data?.interval === 'raw' ? 'Raw' : data?.interval ?? '—'} chart resolution`}</p>
           </article>
         </section>
@@ -446,9 +450,11 @@ function App() {
           </div>
         </section>
 
-        </> : catalog ? (
+        </> : null}
+        {visited.has('collocation') && <div hidden={view !== 'collocation'}><Suspense fallback={<WorkspaceState title="Opening collocation" loading />}><CollocationWorkspace /></Suspense></div>}
+        {visited.has('statistics') && <div hidden={view !== 'statistics'}>{catalog ? (
           <Suspense fallback={<div className="analysis-loader" role="status"><LoaderCircle className="spin" />Opening statistics…</div>}><StatisticsWorkspace key={statisticsDataset ?? 'statistics'} catalog={catalog} preferredDataset={statisticsDataset} /></Suspense>
-        ) : !error && <div className="analysis-loader"><LoaderCircle className="spin" /><span>Loading datasets…</span></div>}
+        ) : !error && <div className="analysis-loader"><LoaderCircle className="spin" /><span>Loading datasets…</span></div>}</div>}
         <footer className="footer">
           <span><Database size={13} /> {catalog ? `${catalog.total_rows.toLocaleString()} rows indexed` : 'Indexing data'}</span>
           <span>{catalog?.invalid_rows ? `${catalog.invalid_rows.toLocaleString()} timestamp anomalies detected` : 'Schema validation active'}</span>

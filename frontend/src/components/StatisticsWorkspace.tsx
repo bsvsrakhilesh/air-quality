@@ -12,6 +12,7 @@ import {
   Download,
 } from 'lucide-react'
 import { exportAnalysis } from '../export'
+import { WorkspaceState } from './WorkspaceState'
 import { QuantilePlot } from './QuantilePlot'
 import {
   getCorrelation,
@@ -78,7 +79,11 @@ export function StatisticsWorkspace({ catalog, preferredDataset }: Props) {
   const [profile, setProfile] = useState<StatisticalProfile | null>(null)
   const [tab, setTab] = useState<Tab>('overview')
   const [mode, setMode] = useState<Mode>('guided')
-  const [loading, setLoading] = useState(false)
+  const [profileLoading, setProfileLoading] = useState(false)
+  const [distributionLoading, setDistributionLoading] = useState(false)
+  const [correlationLoading, setCorrelationLoading] = useState(false)
+  const [timeLoading, setTimeLoading] = useState(false)
+  const loading = profileLoading || (tab === 'distribution' && distributionLoading) || (tab === 'relationships' && correlationLoading) || (tab === 'time' && timeLoading)
   const [error, setError] = useState<string | null>(null)
 
   const [numericColumn, setNumericColumn] = useState('')
@@ -119,7 +124,7 @@ export function StatisticsWorkspace({ catalog, preferredDataset }: Props) {
   useEffect(() => {
     if (!datasetId) return
     const controller = new AbortController()
-    setLoading(true)
+    setProfileLoading(true)
     setError(null)
     setProfile(null)
     getStatisticalProfile(datasetId, controller.signal)
@@ -129,7 +134,8 @@ export function StatisticsWorkspace({ catalog, preferredDataset }: Props) {
         const categorical = result.column_profiles.filter((column) => ['categorical', 'boolean', 'text'].includes(column.type)).map((column) => column.name)
         setNumericColumn(numeric[0] ?? '')
         setColumnA(numeric[0] ?? '')
-        setColumnB(numeric[1] ?? numeric[0] ?? '')
+        setColumnB(numeric.length ? numeric[1] ?? '' : categorical[1] ?? '')
+        setTestName(numeric.length ? categorical.length ? 'independent_t' : 'one_sample_t' : 'chi_square')
         setGroupColumn(categorical[0] ?? '')
         setTimestampColumn(result.column_profiles.find((column) => column.type === 'datetime')?.name ?? '')
         setCorrelationColumns(numeric.slice(0, 8))
@@ -140,7 +146,7 @@ export function StatisticsWorkspace({ catalog, preferredDataset }: Props) {
       .catch((reason: Error) => {
         if (reason.name !== 'AbortError') setError(reason.message)
       })
-      .finally(() => { if (!controller.signal.aborted) setLoading(false) })
+      .finally(() => { if (!controller.signal.aborted) setProfileLoading(false) })
     return () => controller.abort()
   }, [datasetId, retry])
 
@@ -154,41 +160,44 @@ export function StatisticsWorkspace({ catalog, preferredDataset }: Props) {
   )
 
   useEffect(() => {
+    setDistributionLoading(false)
     setDistribution(null)
     if (tab !== 'distribution' || profile?.dataset.id !== datasetId || !numericColumn) return
     const controller = new AbortController()
-    setLoading(true)
+    setDistributionLoading(true)
     setError(null)
     const timer = window.setTimeout(() => { getDistribution(datasetId, numericColumn, bins, controller.signal)
       .then(setDistribution)
       .catch((reason: Error) => { if (reason.name !== 'AbortError') setError(reason.message) })
-      .finally(() => { if (!controller.signal.aborted) setLoading(false) }) }, 180)
+      .finally(() => { if (!controller.signal.aborted) setDistributionLoading(false) }) }, 180)
     return () => { window.clearTimeout(timer); controller.abort() }
   }, [tab, datasetId, numericColumn, bins, profile])
 
   useEffect(() => {
+    setCorrelationLoading(false)
     setCorrelation(null)
     if (tab !== 'relationships' || profile?.dataset.id !== datasetId || correlationColumns.length < 2) return
     const controller = new AbortController()
-    setLoading(true)
+    setCorrelationLoading(true)
     setError(null)
     getCorrelation(datasetId, correlationColumns, correlationMethod, controller.signal)
       .then(setCorrelation)
       .catch((reason: Error) => { if (reason.name !== 'AbortError') setError(reason.message) })
-      .finally(() => { if (!controller.signal.aborted) setLoading(false) })
+      .finally(() => { if (!controller.signal.aborted) setCorrelationLoading(false) })
     return () => controller.abort()
   }, [tab, datasetId, correlationColumns, correlationMethod, profile])
 
   useEffect(() => {
+    setTimeLoading(false)
     setTimeDiagnostics(null)
     if (tab !== 'time' || profile?.dataset.id !== datasetId || !timestampColumn || !numericColumn) return
     const controller = new AbortController()
-    setLoading(true)
+    setTimeLoading(true)
     setError(null)
     getTimeDiagnostics(datasetId, timestampColumn, numericColumn, 40, controller.signal)
       .then(setTimeDiagnostics)
       .catch((reason: Error) => { if (reason.name !== 'AbortError') setError(reason.message) })
-      .finally(() => { if (!controller.signal.aborted) setLoading(false) })
+      .finally(() => { if (!controller.signal.aborted) setTimeLoading(false) })
     return () => controller.abort()
   }, [tab, datasetId, timestampColumn, numericColumn, profile])
 
@@ -257,18 +266,18 @@ export function StatisticsWorkspace({ catalog, preferredDataset }: Props) {
             </select>
           </label>
           <div className="mode-switch" aria-label="Analysis experience">
-            <button type="button" className={mode === 'guided' ? 'active' : ''} onClick={() => setMode('guided')}><BookOpen size={13} /> Guided</button>
-            <button type="button" className={mode === 'expert' ? 'active' : ''} onClick={() => setMode('expert')}><FlaskConical size={13} /> Expert</button>
+            <button type="button" aria-pressed={mode === 'guided'} className={mode === 'guided' ? 'active' : ''} onClick={() => setMode('guided')}><BookOpen size={13} /> Guided</button>
+            <button type="button" aria-pressed={mode === 'expert'} className={mode === 'expert' ? 'active' : ''} onClick={() => setMode('expert')}><FlaskConical size={13} /> Expert</button>
           </div>
         </div>
       </section>
 
       <nav className="analysis-tabs" aria-label="Statistical analysis sections">
-        <button className={tab === 'overview' ? 'active' : ''} onClick={() => setTab('overview')}><Grid3X3 size={14} /> Overview</button>
-        <button className={tab === 'distribution' ? 'active' : ''} onClick={() => setTab('distribution')}><BarChart3 size={14} /> Distributions</button>
-        <button className={tab === 'relationships' ? 'active' : ''} onClick={() => setTab('relationships')}><Sigma size={14} /> Relationships</button>
-        <button className={tab === 'time' ? 'active' : ''} onClick={() => setTab('time')}><BarChart3 size={14} /> Time diagnostics</button>
-        <button className={tab === 'tests' ? 'active' : ''} onClick={() => setTab('tests')}><FlaskConical size={14} /> Statistical tests</button>
+        <button aria-pressed={tab === 'overview'} className={tab === 'overview' ? 'active' : ''} onClick={() => setTab('overview')}><Grid3X3 size={14} /> Overview</button>
+        <button aria-pressed={tab === 'distribution'} className={tab === 'distribution' ? 'active' : ''} onClick={() => setTab('distribution')}><BarChart3 size={14} /> Distributions</button>
+        <button aria-pressed={tab === 'relationships'} className={tab === 'relationships' ? 'active' : ''} onClick={() => setTab('relationships')}><Sigma size={14} /> Relationships</button>
+        <button aria-pressed={tab === 'time'} className={tab === 'time' ? 'active' : ''} onClick={() => setTab('time')}><BarChart3 size={14} /> Time diagnostics</button>
+        <button aria-pressed={tab === 'tests'} className={tab === 'tests' ? 'active' : ''} onClick={() => setTab('tests')}><FlaskConical size={14} /> Statistical tests</button>
       </nav>
 
       {error && <div className="error-banner" role="alert"><AlertCircle size={14} /> {error} <button className="button secondary" onClick={() => setRetry(value => value + 1)}>Retry</button></div>}
@@ -296,7 +305,7 @@ export function StatisticsWorkspace({ catalog, preferredDataset }: Props) {
             <div className="card-heading compact"><div><h2>Column profile</h2><p>Types and descriptive summaries inferred from the complete dataset.</p></div></div>
             <div className="table-wrap">
               <table className="profile-table">
-                <thead><tr><th>Column</th><th>Type</th><th>Non-null</th><th>Missing</th><th>Invalid</th><th>Unique</th><th>Summary</th></tr></thead>
+                <thead><tr><th>Column</th><th>Type</th><th>Valid</th><th>Missing</th><th>Invalid</th><th>Unique</th><th>Summary</th></tr></thead>
                 <tbody>{profile.column_profiles.map((column) => (
                   <tr key={column.name}>
                     <td><strong>{column.name}</strong></td>
@@ -338,8 +347,8 @@ export function StatisticsWorkspace({ catalog, preferredDataset }: Props) {
           <div className="analysis-main-stack">
             <article className="analysis-card histogram-card">
               <div className="card-heading"><div><h2>Histogram</h2><p>{distribution?.count.toLocaleString() ?? 0} valid observations</p></div>{loading && <LoaderCircle size={15} className="spin" />}</div>
-              {distribution && <>
-                <div className="histogram-bars" aria-label={`Histogram of ${numericColumn}`}>{distribution.histogram.counts.map((count, index) => <div key={index} title={`${count.toLocaleString()} observations`} style={{ height: `${Math.max(2, count / histogramMax * 100)}%` }} />)}</div>
+              {!distribution && <WorkspaceState loading={distributionLoading} title={distributionLoading ? 'Computing distribution' : !numericColumn ? 'No numeric columns' : 'Distribution unavailable'}>{!numericColumn ? 'This dataset contains no numeric measurements. Review its column profile or choose another dataset.' : 'Results will appear here when the analysis completes.'}</WorkspaceState>}{distribution && <>
+                <div className="histogram-bars" aria-label={`Histogram of ${numericColumn}`}>{distribution.histogram.counts.map((count, index) => <div key={index} title={`${count.toLocaleString()} observations`} style={{ height: `${count ? Math.max(1, count / histogramMax * 100) : 0}%` }} />)}</div>
                 <div className="histogram-axis"><span>{format(distribution.histogram.edges[0])}</span><span>{format(distribution.histogram.edges.at(-1))}</span></div>
               </>}
             </article>
@@ -370,7 +379,7 @@ export function StatisticsWorkspace({ catalog, preferredDataset }: Props) {
           </aside>
           <article className="analysis-card correlation-card">
             <div className="card-heading"><div><h2>{correlationMethod[0].toUpperCase() + correlationMethod.slice(1)} correlation</h2><p>Markers: adjusted p &lt; .05 · Benjamini–Hochberg correction · pairwise complete observations.</p></div>{loading && <LoaderCircle size={15} className="spin" />}</div>
-            {correlationColumns.length < 2 && <p className="plain-note">Select at least two numeric columns to compute correlations.</p>}{correlation && <div className="correlation-scroll"><table className="correlation-matrix"><thead><tr><th /><>{correlation.columns.map((column) => <th key={column} title={column}>{column}</th>)}</></tr></thead><tbody>{correlation.columns.map((row, rowIndex) => <tr key={row}><th>{row}</th>{correlation.columns.map((column, columnIndex) => { const value = correlation.values[rowIndex][columnIndex]; const significant = (correlation.adjusted_p_values[rowIndex][columnIndex] ?? 1) < .05; return <td key={column} style={{ background: correlationColor(value), color: value != null && Math.abs(value) > .55 ? 'white' : undefined }} title={`r=${format(value)} · p=${format(correlation.p_values[rowIndex][columnIndex], 4)} · adjusted p=${format(correlation.adjusted_p_values[rowIndex][columnIndex], 4)} · n=${correlation.sample_sizes[rowIndex][columnIndex]}`}>{format(value, 2)}{significant && rowIndex !== columnIndex ? <sup>•</sup> : null}</td> })}</tr>)}</tbody></table></div>}
+            {!correlation && <WorkspaceState loading={correlationLoading} title={correlationLoading ? 'Computing relationships' : 'Select at least two numeric columns'}>Choose columns in Correlation setup. A dataset needs two numeric variables for this analysis.</WorkspaceState>}{correlation && <div className="correlation-scroll"><table className="correlation-matrix"><thead><tr><th /><>{correlation.columns.map((column) => <th key={column} title={column}>{column}</th>)}</></tr></thead><tbody>{correlation.columns.map((row, rowIndex) => <tr key={row}><th>{row}</th>{correlation.columns.map((column, columnIndex) => { const value = correlation.values[rowIndex][columnIndex]; const significant = (correlation.adjusted_p_values[rowIndex][columnIndex] ?? 1) < .05; return <td key={column} style={{ background: correlationColor(value), color: value != null && Math.abs(value) > .55 ? 'white' : undefined }} title={`r=${format(value)} · p=${format(correlation.p_values[rowIndex][columnIndex], 4)} · adjusted p=${format(correlation.adjusted_p_values[rowIndex][columnIndex], 4)} · n=${correlation.sample_sizes[rowIndex][columnIndex]}`}>{format(value, 2)}{significant && rowIndex !== columnIndex ? <sup>•</sup> : null}</td> })}</tr>)}</tbody></table></div>}
           </article>
         </section>
       )}
@@ -393,7 +402,8 @@ export function StatisticsWorkspace({ catalog, preferredDataset }: Props) {
             </>}
             {currentTest.kind === 'one' && <label className="field"><span>Hypothesized mean</span><input className="control" type="number" value={targetMean} onChange={(event) => setTargetMean(Number(event.target.value))} /></label>}
             {mode === 'expert' && <label className="field"><span>Significance level α</span><select className="control" value={alpha} onChange={(event) => setAlpha(Number(event.target.value))}><option value={0.1}>0.10</option><option value={0.05}>0.05</option><option value={0.01}>0.01</option></select></label>}
-            <button className="button primary run-test" type="button" onClick={runTest} disabled={testLoading || (['independent_t', 'mann_whitney'].includes(testName) && (!groupA || !groupB || groupA === groupB)) || !columnA || (currentTest.kind === 'pair' && (!columnB || columnA === columnB)) || (currentTest.kind === 'group' && !groupColumn) || (currentTest.kind === 'categorical' && (!groupColumn || !columnB || groupColumn === columnB))}>{testLoading ? <><LoaderCircle className="spin" size={14} />Running…</> : 'Run analysis'}</button>
+            {((currentTest.kind !== 'categorical' && !columnA) || (currentTest.kind === 'pair' && (!columnB || columnA === columnB)) || (currentTest.kind === 'group' && !groupColumn) || (currentTest.kind === 'categorical' && (!groupColumn || !columnB || groupColumn === columnB))) && <p className="caution-note">This method requires {currentTest.kind === 'categorical' ? 'two distinct categorical columns' : currentTest.kind === 'pair' ? 'two distinct numeric columns' : currentTest.kind === 'group' ? 'a numeric outcome and a categorical grouping column' : 'a numeric column'}. Choose another method or dataset.</p>}
+            <button className="button primary run-test" type="button" onClick={runTest} disabled={testLoading || (['independent_t', 'mann_whitney'].includes(testName) && (!groupA || !groupB || groupA === groupB)) || (currentTest.kind !== 'categorical' && !columnA) || (currentTest.kind === 'pair' && (!columnB || columnA === columnB)) || (currentTest.kind === 'group' && !groupColumn) || (currentTest.kind === 'categorical' && (!groupColumn || !columnB || groupColumn === columnB))}>{testLoading ? <><LoaderCircle className="spin" size={14} />Running…</> : 'Run analysis'}</button>
           </aside>
           <div className="analysis-main-stack">
             {!testResult ? <article className="analysis-card test-placeholder"><FlaskConical size={25} /><h2>Ready when you are</h2><p>Configure the analysis on the left. Results include the test statistic, p-value, degrees of freedom, effect size, and a plain-language interpretation.</p></article> : <article className="analysis-card test-result-card">
@@ -417,7 +427,7 @@ export function StatisticsWorkspace({ catalog, preferredDataset }: Props) {
             {mode === 'guided' && <p className="plain-note"><Info size={13} />Autocorrelation shows how strongly a series resembles its earlier values. High values at repeated lags may indicate persistence or seasonality.</p>}
           </aside>
           <div className="analysis-main-stack">
-            {!timestampColumn ? <article className="analysis-card test-placeholder"><BarChart3 size={25} /><h2>No date/time column detected</h2><p>Configure a timestamp during import or choose a column that contains parseable dates.</p></article> : timeDiagnostics && <>
+            {!timestampColumn || !numericColumn ? <article className="analysis-card test-placeholder"><BarChart3 size={25} /><h2>Date/time and numeric columns required</h2><p>Configure a timestamp during import or choose a column that contains parseable dates.</p></article> : !timeDiagnostics ? <WorkspaceState loading={timeLoading} title={timeLoading ? 'Computing time diagnostics' : 'Time diagnostics unavailable'}>Trend and autocorrelation results will appear here.</WorkspaceState> : <>
               <p className="caution-note">{timeDiagnostics.caution}{timeDiagnostics.irregular_intervals ? " Irregular sampling detected." : ""} {timeDiagnostics.duplicate_timestamps} duplicate timestamps.</p><section className="stat-grid diagnostics-stats"><article className="stat-card"><span>Observations</span><strong>{timeDiagnostics.count.toLocaleString()}</strong><p>Complete time-value pairs</p></article><article className="stat-card"><span>Median cadence</span><strong>{format(timeDiagnostics.median_interval_seconds)}<small> sec</small></strong><p>Typical interval</p></article><article className="stat-card"><span>Trend per day</span><strong>{format(timeDiagnostics.trend_per_day)}</strong><p>p = {format(timeDiagnostics.trend_p_value, 4)}</p></article><article className="stat-card"><span>Trend R²</span><strong>{format(timeDiagnostics.r_squared)}</strong><p>Linear variance explained</p></article></section>
               <article className="analysis-card autocorrelation-card"><div className="card-heading"><div><h2>Autocorrelation function</h2><p>Lag 1 through {timeDiagnostics.lags.at(-1)} · values range from −1 to +1</p></div>{loading && <LoaderCircle size={15} className="spin" />}</div><div className="acf-chart">{timeDiagnostics.autocorrelation.map((value, index) => <div key={timeDiagnostics.lags[index]} title={`Lag ${timeDiagnostics.lags[index]}: ${format(value)}`}><span style={{ height: `${Math.abs(value ?? 0) * 50}%`, bottom: (value ?? 0) >= 0 ? '50%' : 'auto', top: (value ?? 0) < 0 ? '50%' : 'auto', background: (value ?? 0) >= 0 ? '#176b52' : '#b74655' }} /></div>)}</div><div className="acf-axis"><span>Lag 1</span><span>Zero</span><span>Lag {timeDiagnostics.lags.at(-1)}</span></div></article>
             </>}
